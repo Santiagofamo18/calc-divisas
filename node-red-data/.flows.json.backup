@@ -7,6 +7,13 @@
         "info": ""
     },
     {
+        "id": "hist_tab",
+        "type": "tab",
+        "label": "Histórico divisas",
+        "disabled": false,
+        "info": ""
+    },
+    {
         "id": "b1d2f3e4.5a6b7c8",
         "type": "influxdb",
         "hostname": "172.18.0.82",
@@ -25,7 +32,7 @@
         "id": "2de14618676090fb",
         "type": "inject",
         "z": "55670685a4ad1746",
-        "name": "Trigger cada 24h",
+        "name": "Inject cada 24",
         "props": [
             {
                 "p": "payload"
@@ -42,13 +49,11 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 460,
+        "x": 200,
         "y": 220,
         "wires": [
             [
-                "26d036b8871395db",
-                "5d318e8023f49cb3",
-                "489108f09d363b35"
+                "341f0b40e6385a3d"
             ]
         ]
     },
@@ -169,14 +174,18 @@
         "key": "topic",
         "joiner": "\\n",
         "joinerType": "str",
-        "accumulate": true,
+        "accumulate": false,
         "timeout": "5",
-        "count": "3",
+        "count": "4",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
         "x": 1100,
         "y": 220,
         "wires": [
             [
-                "c937544a1876b5a3",
                 "bed198732c260698"
             ]
         ]
@@ -186,66 +195,17 @@
         "type": "function",
         "z": "55670685a4ad1746",
         "name": "Calc",
-        "func": "const apis = msg.payload;\nconst mapaDivisas = {};\nlet apiDate = null;\n\nfor (const apiTag in apis) {\n    const apiData = apis[apiTag];\n    if (!apiData || typeof apiData !== 'object') continue;\n    const tasas = apiData.rates || apiData;\n    if (!apiDate && apiData.date) {\n        apiDate = apiData.date;\n    }\n\n    for (const [codigo, valor] of Object.entries(tasas)) {\n        if (!mapaDivisas[codigo]) {\n            mapaDivisas[codigo] = { suma: 0, conteo: 0 };\n        }\n        mapaDivisas[codigo].suma += valor;\n        mapaDivisas[codigo].conteo += 1;\n    }\n}\n\nconst fecha = apiDate || new Date().toISOString().split('T')[0];\nconst resultados = Object.keys(mapaDivisas).map(codigo => ({\n    codigo: codigo,\n    media: mapaDivisas[codigo].suma / mapaDivisas[codigo].conteo,\n    fuentes: mapaDivisas[codigo].conteo,\n    fecha\n}));\n\nmsg.payload = resultados;\nreturn msg;",
-        "outputs": 1,
-        "x": 1270,
-        "y": 220,
-        "wires": [
-            [
-                "dd1b87b9b3bb941e",
-                "c3e89cc82270a290"
-            ]
-        ]
-    },
-    {
-        "id": "c937544a1876b5a3",
-        "type": "debug",
-        "z": "55670685a4ad1746",
-        "name": "debug 1",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1340,
-        "y": 360,
-        "wires": []
-    },
-    {
-        "id": "76c7fd9951bc59d2",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Query",
-        "func": "const d = msg.payload;\n\nmsg.query = `INSERT INTO monedas (codigo) VALUES ($1) ON CONFLICT (codigo) DO NOTHING`;\nmsg.params = [d.codigo];\nmsg.payload = {};\nmsg._divisa = d;\n\nreturn msg;",
+        "func": "const apis = msg.payload;\nconst mapaDivisas = {};\nconst fechas = [];\n\nfor (const apiTag in apis) {\n    const apiData = apis[apiTag];\n    if (!apiData || typeof apiData !== 'object') continue;\n    if (apiData.date) fechas.push(apiData.date);\n\n    const tasas = apiData.rates || apiData;\n    for (const [codigo, valor] of Object.entries(tasas)) {\n        const codigoNorm = codigo.toUpperCase();\n        if (!mapaDivisas[codigoNorm]) {\n            mapaDivisas[codigoNorm] = { suma: 0, conteo: 0 };\n        }\n        mapaDivisas[codigoNorm].suma += valor;\n        mapaDivisas[codigoNorm].conteo += 1;\n    }\n}\n\nconst todasIguales = fechas.length === 4 && fechas.every(f => f === fechas[0]);\n\nif (!todasIguales) {\n    node.warn(`⏳ APIs en fechas distintas: ${fechas.join(', ')} — bloqueando`);\n    return null;\n}\n\nconst fecha = fechas[0];\nconst resultados = Object.keys(mapaDivisas).map(codigo => ({\n    codigo,\n    media: mapaDivisas[codigo].suma / mapaDivisas[codigo].conteo,\n    fuentes: mapaDivisas[codigo].conteo,\n    fecha\n}));\n\nmsg.payload = resultados;\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1610,
-        "y": 220,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "dd1b87b9b3bb941e",
-        "type": "split",
-        "z": "55670685a4ad1746",
-        "name": "",
-        "splt": "\\n",
-        "spltType": "str",
-        "arraySplt": 1,
-        "arraySpltType": "len",
-        "stream": false,
-        "addname": "",
-        "x": 1430,
+        "x": 1270,
         "y": 220,
         "wires": [
             [
-                "76c7fd9951bc59d2"
+                "43bf0f093b23f31d"
             ]
         ]
     },
@@ -261,8 +221,8 @@
         "retentionPolicyV18Flux": "",
         "org": "${INFLUXDB_ORG}",
         "bucket": "${INFLUXDB_BUCKET}",
-        "x": 1740,
-        "y": 280,
+        "x": 2000,
+        "y": 220,
         "wires": []
     },
     {
@@ -270,17 +230,488 @@
         "type": "function",
         "z": "55670685a4ad1746",
         "name": "Build Influx points",
-        "func": "const records = msg.payload || [];\n\nmsg.payload = records.map(item => {\n    const fecha = item.fecha || item.Fecha || new Date().toISOString().split(\"T\")[0];\n    const numApis = Number(item.fuentes ?? item.num_apis ?? 0);\n    return {\n        measurement: \"divisas\",\n        tags: { Codigo_moneda: (item.codigo || item.Codigo_moneda || \"\").toUpperCase() },\n        fields: {\n            Valor_media: Number(item.media ?? item.valor_media ?? 0),\n            Num_apis: numApis\n        },\n        timestamp: new Date(fecha)\n    };\n});\n\nreturn msg;",
+        "func": "const records = msg.payload || [];\n\nmsg.payload = records.map(item => {\n    const numApis = Math.round(Number(item.fuentes ?? item.num_apis ?? 0));\n    return {\n        measurement: \"divisas\",\n        tags: { Codigo_moneda: (item.codigo || item.Codigo_moneda || \"\").toUpperCase() },\n        fields: {\n            Valor_media: Number(item.media ?? item.valor_media ?? 0),\n            Num_apis: { value: numApis, type: \"integer\" }\n        },\n        timestamp: new Date()\n    };\n});\n\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1490,
-        "y": 280,
+        "x": 1750,
+        "y": 220,
         "wires": [
             [
                 "9c7d0f6a8b5c3d21"
+            ]
+        ]
+    },
+    {
+        "id": "43bf0f093b23f31d",
+        "type": "function",
+        "z": "55670685a4ad1746",
+        "name": "date_today",
+        "func": "const hoy = new Date().toLocaleDateString('sv-SE');\nconst fechaApi = msg.payload[0]?.fecha;\n\nif (fechaApi === hoy) {\n    node.warn(`APIs actualizadas al ${hoy} — subiendo datos`);\n    return [msg, null]; \n} else {\n    node.warn(`APIs aún en ${fechaApi}, reintentando en 30 min...`);\n    return [null, msg]; \n}",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1430,
+        "y": 220,
+        "wires": [
+            [
+                "c3e89cc82270a290"
+            ],
+            [
+                "333704b1f93d137f"
+            ]
+        ]
+    },
+    {
+        "id": "333704b1f93d137f",
+        "type": "delay",
+        "z": "55670685a4ad1746",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "30",
+        "timeoutUnits": "minutes",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1610,
+        "y": 320,
+        "wires": [
+            [
+                "19277f4ea4e8b145"
+            ]
+        ]
+    },
+    {
+        "id": "341f0b40e6385a3d",
+        "type": "link out",
+        "z": "55670685a4ad1746",
+        "name": "link out Inject",
+        "mode": "link",
+        "links": [
+            "50ac77c4cd57f7f9"
+        ],
+        "x": 335,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "50ac77c4cd57f7f9",
+        "type": "link in",
+        "z": "55670685a4ad1746",
+        "name": "link to apis",
+        "links": [
+            "341f0b40e6385a3d",
+            "19277f4ea4e8b145"
+        ],
+        "x": 505,
+        "y": 220,
+        "wires": [
+            [
+                "26d036b8871395db",
+                "5d318e8023f49cb3",
+                "489108f09d363b35",
+                "fcfdf6a1392be216"
+            ]
+        ]
+    },
+    {
+        "id": "19277f4ea4e8b145",
+        "type": "link out",
+        "z": "55670685a4ad1746",
+        "name": "link out delay",
+        "mode": "link",
+        "links": [
+            "50ac77c4cd57f7f9"
+        ],
+        "x": 1795,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "fcfdf6a1392be216",
+        "type": "http request",
+        "z": "55670685a4ad1746",
+        "name": "AWESOME API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://economia.awesomeapi.com.br/json/last/EUR-USD,EUR-GBP,EUR-JPY,EUR-CHF,EUR-BRL,EUR-CAD",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 680,
+        "y": 360,
+        "wires": [
+            [
+                "fcd635b7bc8b6c78"
+            ]
+        ]
+    },
+    {
+        "id": "fcd635b7bc8b6c78",
+        "type": "function",
+        "z": "55670685a4ad1746",
+        "name": "Estandarización",
+        "func": "msg.topic = \"awesome\";\nconst rates = {};\n\nfor (const pair in msg.payload) {\n    const code = pair.substring(3); \n    rates[code] = parseFloat(msg.payload[pair].bid);\n}\n\nmsg.payload = {\n    rates: rates,\n    date: new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 360,
+        "wires": [
+            [
+                "185abda84b36cc6f"
+            ]
+        ]
+    },
+    {
+        "id": "hist_inject",
+        "type": "inject",
+        "z": "hist_tab",
+        "name": "Fecha inicio",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": "",
+        "topic": "",
+        "payload": "2026-05-01",
+        "payloadType": "str",
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "hist_init"
+            ]
+        ]
+    },
+    {
+        "id": "hist_init",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Generar lista de fechas",
+        "func": "const fechaInicio = msg.payload;\nconst hoy = new Date().toLocaleDateString('sv-SE');\nconst fechas = [];\nlet cursor = new Date(fechaInicio);\nconst fin = new Date(hoy);\nwhile (cursor <= fin) {\n    fechas.push(cursor.toLocaleDateString('sv-SE'));\n    cursor.setDate(cursor.getDate() + 1);\n}\nflow.set('fechas_pendientes', fechas);\nflow.set('fecha_idx', 0);\nflow.set('total_fechas', fechas.length);\nnode.warn('Procesando ' + fechas.length + ' días desde ' + fechaInicio + ' hasta ' + hoy);\nmsg.payload = fechas[0];\nreturn msg;",
+        "outputs": 1,
+        "x": 360,
+        "y": 200,
+        "wires": [
+            [
+                "hist_link_out"
+            ]
+        ]
+    },
+    {
+        "id": "hist_link_out",
+        "type": "link out",
+        "z": "hist_tab",
+        "name": "link out fecha",
+        "mode": "link",
+        "links": [
+            "hist_link_in"
+        ],
+        "x": 555,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "hist_link_in",
+        "type": "link in",
+        "z": "hist_tab",
+        "name": "link in fecha",
+        "links": [
+            "hist_link_out",
+            "hist_next_link_out"
+        ],
+        "x": 165,
+        "y": 360,
+        "wires": [
+            [
+                "hist_build_urls"
+            ]
+        ]
+    },
+    {
+        "id": "hist_build_urls",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Build URLs",
+        "func": "const fecha = msg.payload;\nflow.set('fecha_actual', fecha);\n\nmsg.fecha = fecha;\n// Formato YYYYMMDD para AwesomeAPI\nmsg.fechaAwesome = fecha.replace(/-/g, '');\nmsg._origMsgId = msg._msgid;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 360,
+        "wires": [
+            [
+                "hist_frankfurter",
+                "hist_fawaz",
+                "9e95b5e4f151a902"
+            ]
+        ]
+    },
+    {
+        "id": "hist_frankfurter",
+        "type": "http request",
+        "z": "hist_tab",
+        "name": "Frankfurter histórico",
+        "method": "GET",
+        "ret": "obj",
+        "url": "https://api.frankfurter.dev/v1/{{{payload}}}?base=EUR",
+        "x": 540,
+        "y": 300,
+        "wires": [
+            [
+                "hist_norm_frankfurter"
+            ]
+        ]
+    },
+    {
+        "id": "hist_fawaz",
+        "type": "http request",
+        "z": "hist_tab",
+        "name": "Fawaz histórico",
+        "method": "GET",
+        "ret": "obj",
+        "url": "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{{{payload}}}/v1/currencies/eur.json",
+        "x": 530,
+        "y": 420,
+        "wires": [
+            [
+                "hist_norm_fawaz"
+            ]
+        ]
+    },
+    {
+        "id": "hist_norm_frankfurter",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Norm Frankfurter",
+        "func": "const fecha = flow.get('fecha_actual');\n\nmsg.topic = 'frankfurter_' + fecha;\nmsg.fecha = fecha;\n\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: fecha\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 770,
+        "y": 300,
+        "wires": [
+            [
+                "ea5a5d2f5f4d91f6"
+            ]
+        ]
+    },
+    {
+        "id": "hist_norm_fawaz",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Norm Fawaz",
+        "func": "const fecha = flow.get('fecha_actual');\n\nmsg.topic = 'fawaz_' + fecha;\nmsg.fecha = fecha;\n\nmsg.payload = {\n    rates: msg.payload.eur || {},\n    date: fecha\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 420,
+        "wires": [
+            [
+                "ea5a5d2f5f4d91f6"
+            ]
+        ]
+    },
+    {
+        "id": "hist_calc",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Calc histórico",
+        "func": "const apis = msg.payload;\nconst mapaDivisas = {};\nlet fecha = null;\n\nfor (const apiTag in apis) {\n    const apiData = apis[apiTag];\n    if (!apiData || typeof apiData !== 'object') continue;\n    if (!fecha && apiData.date) fecha = apiData.date;\n    const tasas = apiData.rates || apiData;\n    for (const [codigo, valor] of Object.entries(tasas)) {\n        const codigoNorm = codigo.toUpperCase();\n        if (typeof valor !== 'number') continue;\n        if (!mapaDivisas[codigoNorm]) {\n            mapaDivisas[codigoNorm] = { suma: 0, conteo: 0 };\n        }\n        mapaDivisas[codigoNorm].suma += valor;\n        mapaDivisas[codigoNorm].conteo += 1;\n    }\n}\n\nif (!fecha) {\n    node.warn('Sin fecha, saltando...');\n    return null;\n}\n\nconst resultados = Object.keys(mapaDivisas).map(codigo => ({\n    codigo: codigo,\n    media: mapaDivisas[codigo].suma / mapaDivisas[codigo].conteo,\n    fuentes: mapaDivisas[codigo].conteo, // Mantenemos fuentes\n    num_apis: mapaDivisas[codigo].conteo, // Añadimos alias por seguridad\n    fecha: fecha\n}));\n\nconst idx = flow.get('fecha_idx') || 0;\nconst total = flow.get('total_fechas') || 0;\nnode.warn('[' + (idx + 1) + '/' + total + ']  ' + fecha + ' — ' + resultados.length + ' monedas');\n\nmsg.payload = resultados;\nmsg.fecha = fecha;\n\n// Al final de Calc histórico, antes de return msg:\nconst resumen = resultados.reduce((acc, r) => {\n    acc[r.fuentes] = (acc[r.fuentes] || 0) + 1;\n    return acc;\n}, {});\nnode.warn('[' + (idx+1) + '/' + total + '] ' + fecha \n    + ' — ' + resultados.length + ' monedas | fuentes: ' + JSON.stringify(resumen));\n    \nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1140,
+        "y": 360,
+        "wires": [
+            [
+                "hist_build_influx"
+            ]
+        ]
+    },
+    {
+        "id": "hist_build_influx",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Build Influx points",
+        "func": "const records = msg.payload || [];\nconst fecha = msg.fecha;\n\nmsg.payload = records.map(item => {\n    // 1. Obtenemos el valor numérico\n    const valorFuentes = item.fuentes !== undefined ? item.fuentes : (item.num_apis ?? 0);\n    const numApis = parseInt(valorFuentes, 10) || 0;\n\n    return {\n        measurement: 'divisas',\n        tags: {\n            Codigo_moneda: item.codigo.toUpperCase()\n        },\n        fields: {\n            Valor_media: Number(item.media.toFixed(6)),\n            Num_apis: numApis // <-- Enviamos el número directamente\n        },\n        timestamp: new Date(fecha + 'T12:00:00Z')\n    };\n});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1340,
+        "y": 360,
+        "wires": [
+            [
+                "hist_write_influx",
+                "hist_next_day"
+            ]
+        ]
+    },
+    {
+        "id": "hist_write_influx",
+        "type": "influxdb batch",
+        "z": "hist_tab",
+        "influxdb": "b1d2f3e4.5a6b7c8",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "Write to Influx",
+        "database": "",
+        "retentionPolicyV18Flux": "",
+        "org": "${INFLUXDB_ORG}",
+        "bucket": "${INFLUXDB_BUCKET}",
+        "x": 1540,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "hist_next_day",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Siguiente día",
+        "func": "const fechas = flow.get('fechas_pendientes') || [];\nlet idx = flow.get('fecha_idx') || 0;\nidx += 1;\n\nif (idx >= fechas.length) {\n    node.warn('🎉 Histórico completado — ' + fechas.length + ' días procesados');\n    return null;\n}\n\nflow.set('fecha_idx', idx);\nmsg.payload = fechas[idx];\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1370,
+        "y": 460,
+        "wires": [
+            [
+                "66f746a16d13dca6"
+            ]
+        ]
+    },
+    {
+        "id": "hist_next_link_out",
+        "type": "link out",
+        "z": "hist_tab",
+        "name": "link out next",
+        "mode": "link",
+        "links": [
+            "hist_link_in"
+        ],
+        "x": 1700,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "66f746a16d13dca6",
+        "type": "delay",
+        "z": "hist_tab",
+        "name": "",
+        "pauseType": "delay",
+        "timeout": "1",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 1560,
+        "y": 460,
+        "wires": [
+            [
+                "hist_next_link_out"
+            ]
+        ]
+    },
+    {
+        "id": "ea5a5d2f5f4d91f6",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Sync",
+        "func": "const fecha = msg.fecha;\nlet source = '';\n\nif (msg.topic.startsWith('frankfurter')) source = 'frankfurter';\nelse if (msg.topic.startsWith('fawaz')) source = 'fawaz';\nelse if (msg.topic.startsWith('awesome')) source = 'awesome';\n\nconst bufferKey = 'buffer_' + msg._origMsgId;\nlet buffer = flow.get(bufferKey) || { _ts: Date.now() };\n\nbuffer[source] = msg.payload;\nbuffer._fecha = buffer._fecha || fecha;\nflow.set(bufferKey, buffer);\n\nconst apisPresentes = ['frankfurter', 'fawaz', 'awesome'].filter(k => buffer[k]);\nconst apisFaltantes = ['frankfurter', 'fawaz', 'awesome'].filter(k => !buffer[k]);\nconst timedOut = (Date.now() - buffer._ts) > 15000; // 15 s\n\nif (apisPresentes.length < 3 && !timedOut) {\n    return null; // Aún esperando, y no han pasado 15 s\n}\n\n// Llegamos aquí: tenemos las 3 APIs, o ha vencido el timeout\nif (apisFaltantes.length > 0) {\n    node.warn('⚠️ Timeout — APIs ausentes para ' + buffer._fecha + ': ' + apisFaltantes.join(', '));\n}\n\nflow.set(bufferKey, null);\n\nmsg.fecha = buffer._fecha;\nmsg.payload = {\n    frankfurter: buffer.frankfurter || {},\n    fawaz: buffer.fawaz || {},\n    awesome: buffer.awesome || {}\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": 360,
+        "wires": [
+            [
+                "hist_calc"
+            ]
+        ]
+    },
+    {
+        "id": "9e95b5e4f151a902",
+        "type": "http request",
+        "z": "hist_tab",
+        "name": "AwesomeAPI histórico",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://economia.awesomeapi.com.br/json/last/EUR-USD,EUR-GBP,EUR-JPY",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 540,
+        "y": 520,
+        "wires": [
+            [
+                "70f98be10a88f440"
+            ]
+        ]
+    },
+    {
+        "id": "70f98be10a88f440",
+        "type": "function",
+        "z": "hist_tab",
+        "name": "Norm AwesopeAPI",
+        "func": "const fecha = flow.get('fecha_actual');\n\nmsg.topic = 'awesome_' + fecha;\nmsg.fecha = fecha;\n\nconst rates = {};\n\nif (typeof msg.payload === 'object' && msg.payload !== null) {\n    for (const pair in msg.payload) {\n        const item = msg.payload[pair];\n\n        if (!item) continue;\n\n        const code = item.codein;\n        const bid = parseFloat(item.bid);\n\n        if (code && !isNaN(bid)) {\n            rates[code.toUpperCase()] = bid;\n        }\n    }\n}\n\nnode.warn(\n    `AwesomeAPI (${fecha}) → ${Object.keys(rates).length} monedas: ${Object.keys(rates).join(', ')}`\n);\n\nmsg.payload = {\n    rates,\n    date: fecha\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 770,
+        "y": 520,
+        "wires": [
+            [
+                "ea5a5d2f5f4d91f6"
             ]
         ]
     }

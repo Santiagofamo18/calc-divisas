@@ -94,69 +94,56 @@ app.get("/api/divisas", async (req, res) => {
   }
 });
 
-// GET /api/monedas — alias compatible para la vista frontend
-app.get("/api/monedas", async (req, res) => {
-  try {
-    const fluxQuery = `
-      from(bucket: "${bucket}")
-        |> range(start: -30d)
-        |> filter(fn: (r) => r._measurement == "divisas")
-        |> filter(fn: (r) => r._field == "Valor_media")
-        |> keep(columns: ["Codigo_moneda"])
-        |> distinct(column: "Codigo_moneda")
-    `;
 
-    const monedas = [];
-
-    await new Promise((resolve, reject) => {
-      queryApi.queryRows(fluxQuery, {
-        next(row, tableMeta) {
-          const obj = tableMeta.toObject(row);
-          if (obj._value) monedas.push(obj._value);
-        },
-        error: reject,
-        complete: resolve,
-      });
-    });
-
-    res.json(monedas.sort());
-
-  } catch (err) {
-    console.error("Error fetching monedas from InfluxDB:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/tasas-cambio — alias compatible para la vista frontend
 app.get("/api/tasas-cambio", async (req, res) => {
   try {
-    const fluxQuery = `
-      from(bucket: "${bucket}")
-        |> range(start: -30d)
-        |> filter(fn: (r) => r._measurement == "divisas")
-        |> last()
-        |> pivot(rowKey: ["_time", "Codigo_moneda"], columnKey: ["_field"], valueColumn: "_value")
-        |> keep(columns: ["_time", "Codigo_moneda", "Valor_media", "Num_apis"])
-    `;
+    const { fecha } = req.query;
 
-    const tasas = {};
-    const numApis = {};
 
-    await new Promise((resolve, reject) => {
-      queryApi.queryRows(fluxQuery, {
-        next(row, tableMeta) {
-          const obj = tableMeta.toObject(row);
-          if (obj.Codigo_moneda) {
-            tasas[obj.Codigo_moneda] = obj.Valor_media !== undefined ? Number(obj.Valor_media) : null;
-            numApis[obj.Codigo_moneda] = obj.Num_apis !== undefined ? Number(obj.Num_apis) : 0;
-          }
-        },
-        error: reject,
-        complete: resolve,
+    const ejecutarQuery = async (range) => {
+      const fluxQuery = `
+        from(bucket: "${bucket}")
+          |> ${range}
+          |> filter(fn: (r) => r._measurement == "divisas")
+          |> last()
+          |> pivot(rowKey: ["_time", "Codigo_moneda"], columnKey: ["_field"], valueColumn: "_value")
+          |> keep(columns: ["_time", "Codigo_moneda", "Valor_media", "Num_apis"])
+      `;
+
+      const tasas = {};
+      const numApis = {};
+      let fechaEncontrada = null;
+
+      await new Promise((resolve, reject) => {
+        queryApi.queryRows(fluxQuery, {
+          next(row, tableMeta) {
+            const obj = tableMeta.toObject(row);
+            if (obj.Codigo_moneda) {
+              tasas[obj.Codigo_moneda] = obj.Valor_media !== undefined ? Number(obj.Valor_media) : null;
+              numApis[obj.Codigo_moneda] = obj.Num_apis !== undefined ? Number(obj.Num_apis) : 0;
+              if (!fechaEncontrada) fechaEncontrada = obj._time;
+            }
+          },
+          error: reject,
+          complete: resolve,
+        });
       });
-    });
+      return { tasas, numApis, fechaEncontrada };
+    };
 
-    res.json({ tasas, numApis });
+    const rangeClause = fecha
+      ? `range(start: time(v: "${fecha}T00:00:00Z"), stop: time(v: "${fecha}T23:59:59Z"))`
+      : `range(start: -30d)`;
+
+    let resultado = await ejecutarQuery(rangeClause);
+
+
+    if (Object.keys(resultado.tasas).length === 0) {
+
+      resultado = await ejecutarQuery(`range(start: -1y)`);
+    }
+
+    res.json(resultado);
 
   } catch (err) {
     console.error("Error fetching tasas de cambio from InfluxDB:", err);
@@ -164,8 +151,6 @@ app.get("/api/tasas-cambio", async (req, res) => {
   }
 });
 
-// GET /api/tasa-cambio — información completa de todas las monedas
-// GET /api/tasa-cambio?codigo=USD — información de una moneda concreta
 app.get("/api/tasa-cambio", async (req, res) => {
   try {
     const { codigo } = req.query;

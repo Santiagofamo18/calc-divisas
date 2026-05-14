@@ -12,7 +12,7 @@
           <div class="select-trigger" @click.stop="toggleDropdownOrigen">
             <span class="codigo-moneda">{{ monedaOrigen }}</span>
             <span class="nombre-moneda-trigger" v-if="getNombreMoneda(monedaOrigen)">({{ getNombreMoneda(monedaOrigen)
-              }})</span>
+            }})</span>
             <span class="flecha">▼</span>
           </div>
           <div v-if="dropdownAbiertoOrigen" class="select-dropdown">
@@ -27,6 +27,9 @@
             </div>
           </div>
         </div>
+
+        <label>Fecha de tasas:</label>
+        <input type="date" v-model="fechaSeleccionada" :max="hoy" @change="cargarTasas" class="input-fecha" />
       </div>
 
       <div class="contenedor-invertir">
@@ -36,7 +39,7 @@
       <div class="bloque-moneda">
         <label>Resultado:</label>
         <div class="resultado">
-          {{ resultado !== null ? resultado.toFixed(2) : '0.00' }}
+          {{ Number.isFinite(resultado) ? resultado.toFixed(2) : '0.00' }}
         </div>
 
         <label>Moneda destino:</label>
@@ -44,7 +47,7 @@
           <div class="select-trigger" @click.stop="toggleDropdownDestino">
             <span class="codigo-moneda">{{ monedaDestino }}</span>
             <span class="nombre-moneda-trigger" v-if="getNombreMoneda(monedaDestino)">({{ getNombreMoneda(monedaDestino)
-              }})</span>
+            }})</span>
             <span class="flecha">▼</span>
           </div>
           <div v-if="dropdownAbiertoDestino" class="select-dropdown">
@@ -66,7 +69,8 @@
     <div v-if="resultado !== null" class="info-conversion">
       <p><b>{{ cantidad }} {{ monedaOrigen }}</b> = <b>{{ resultado.toFixed(2) }} {{ monedaDestino
       }}</b></p>
-      <p class="tasa">Tasa de cambio: 1 {{ monedaOrigen }} = {{ tasaCambio.toFixed(10) }} {{ monedaDestino }}</p>
+      <p class="tasa">Tasa de cambio: 1 {{ monedaOrigen }} = {{ tasaCambio.toFixed(10) }} {{ monedaDestino }} <span
+          v-if="fechaSeleccionada">(fecha: {{ fechaFormateada }})</span><span v-else>(últimos datos)</span></p>
       <div class="apis-info">
         <p>APIs consultadas: <b>{{ numApisConsultados }}</b></p>
       </div>
@@ -81,8 +85,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, computed, onBeforeUnmount, nextTick } from 'vue'
 
+// refs
 const cantidad = ref(null)
 const monedaOrigen = ref('EUR')
 const monedaDestino = ref('USD')
@@ -101,8 +106,21 @@ const dropdownAbiertoOrigen = ref(false)
 const dropdownAbiertoDestino = ref(false)
 const inputBusquedaOrigen = ref(null)
 const inputBusquedaDestino = ref(null)
+const hoy = new Date().toLocaleDateString('sv-SE')
+const fechaSeleccionada = ref(hoy)
+const fechaRealDatos = ref(null)
 let debounceTimer = null
 
+// computed para mostrar fecha en formato dd-mm-yyyy
+const fechaFormateada = computed(() => {
+  // Priorizamos la fecha real de los datos devuelta por InfluxDB
+  const fechaAMostrar = fechaRealDatos.value || fechaSeleccionada.value;
+  if (!fechaAMostrar) return null;
+  const [y, m, d] = fechaAMostrar.split('-');
+  return `${d}-${m}-${y}`;
+})
+
+// mapa de monedas
 const nombresMonedas = {
   'AED': 'Dirham de los Emiratos Árabes Unidos',
   'AFN': 'Afgani afgano',
@@ -507,44 +525,79 @@ const filtrarMonedas = (busqueda) => {
     .sort((a, b) => a.localeCompare(b))
 }
 
+const formatearFechaEncontrada = (fecha) => {
+  if (!fecha) return null
+  if (typeof fecha === 'string') {
+    return fecha.split('T')[0]
+  }
+  if (fecha instanceof Date) {
+    return fecha.toISOString().split('T')[0]
+  }
+  return String(fecha).split('T')[0]
+}
+
+const cargarTasas = async () => {
+  try {
+    const url = fechaSeleccionada.value
+      ? `http://${window.location.hostname}:3000/api/tasas-cambio?fecha=${fechaSeleccionada.value}`
+      : `http://${window.location.hostname}:3000/api/tasas-cambio`
+
+    const respTasas = await fetch(url)
+    const dataTasas = await respTasas.json()
+
+    if (dataTasas.error) throw new Error(dataTasas.error)
+
+    tasasConversion.value = dataTasas.tasas
+    numApis.value = dataTasas.numApis
+
+    // Guardamos la fecha real de los datos devuelta por el backend.
+    // Si no hay datos para el día solicitado, la API devuelve los últimos datos disponibles.
+    const fechaEncontradaFormateada = formatearFechaEncontrada(dataTasas.fechaEncontrada)
+    if (fechaEncontradaFormateada) {
+      fechaRealDatos.value = fechaEncontradaFormateada
+    } else {
+      fechaRealDatos.value = null
+    }
+    if (Object.keys(tasasConversion.value).length === 0) {
+      error.value = `No hay datos disponibles.`
+      return
+    }
+
+    convertir()
+  } catch (err) {
+    error.value = 'Error al cargar tasas: ' + err.message
+  }
+}
 
 onMounted(async () => {
   document.title = "Divisas";
   window.addEventListener('click', cerrarDropdowns)
   try {
-    const respMonedasList = await fetch(`http://${window.location.hostname}:3000/api/monedas`)
-    const monedas = await respMonedasList.json()
+    const respMonedasList = await fetch(`http://${window.location.hostname}:3000/api/divisas`)
+    const dataMonedas = await respMonedasList.json()
 
-    if (monedas.error) {
-      throw new Error(monedas.error)
+    if (dataMonedas.error) {
+      throw new Error(dataMonedas.error)
     }
 
-    if (!Array.isArray(monedas)) {
+    if (!Array.isArray(dataMonedas.monedas)) {
       throw new Error('Formato de respuesta de monedas inválido')
     }
 
-    monedasDisponibles.value = monedas
+    monedasDisponibles.value = dataMonedas.monedas
 
-    const respTasas = await fetch(`http://${window.location.hostname}:3000/api/tasas-cambio`)
-    const dataTasas = await respTasas.json()
+    await cargarTasas()
 
-    if (dataTasas.error) {
-      throw new Error(dataTasas.error)
-    }
-
-    tasasConversion.value = dataTasas.tasas
-    numApis.value = dataTasas.numApis
-
-    if (monedas.includes('EUR')) {
+    if (monedasDisponibles.value.includes('EUR')) {
       monedaOrigen.value = 'EUR'
-    } else if (monedas.length > 0) {
-      monedaOrigen.value = monedas[0]
+    } else if (monedasDisponibles.value.length > 0) {
+      monedaOrigen.value = monedasDisponibles.value[0]
     }
 
-    if (monedas.includes('USD')) {
+    if (monedasDisponibles.value.includes('USD')) {
       monedaDestino.value = 'USD'
-    } else if (monedas.length > 1) {
-      monedaDestino.value = monedas[1]
+    } else if (monedasDisponibles.value.length > 1) {
+      monedaDestino.value = monedasDisponibles.value[1]
     }
 
     cargando.value = false
