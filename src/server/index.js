@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pg from "pg";
+import dns from "dns/promises";
 
 const { Pool } = pg;
 
@@ -18,21 +19,41 @@ if (fs.existsSync(envPath)) {
     if (!trimmed || trimmed.startsWith("#")) return;
     const [key, ...valueParts] = trimmed.split("=");
     if (key && valueParts.length > 0) {
-      const value = valueParts.join("=").trim().replace(/^["']|["']$/g, "");
+      const value = valueParts
+        .join("=")
+        .trim()
+        .replace(/^["']|["']$/g, "");
       process.env[key.trim()] = value;
     }
   });
 }
 
 // PostgreSQL configuration
+const resolvePostgresHost = async () => {
+  const envHost = process.env.POSTGRES_HOST || "localhost";
+  if (envHost === "postgres") {
+    try {
+      await dns.lookup(envHost);
+      return envHost;
+    } catch (err) {
+      console.warn(
+        `No se puede resolver '${envHost}', usando localhost en su lugar.`,
+      );
+      return "localhost";
+    }
+  }
+  return envHost;
+};
+
 const pgConfig = {
-  host: process.env.POSTGRES_HOST || "localhost",
+  host: await resolvePostgresHost(),
   port: process.env.POSTGRES_PORT || 5432,
   user: process.env.POSTGRES_USER || "postgres",
   password: process.env.POSTGRES_PASSWORD || "password",
-  database: process.env.POSTGRES_DB || "divisas_db",
+  database: process.env.POSTGRES_DB || "postgres",
 };
 
+console.log(`PostgreSQL host: ${pgConfig.host}`);
 const pool = new Pool(pgConfig);
 
 // Server configuration
@@ -69,23 +90,21 @@ app.get("/ping", (req, res) => {
 app.get("/api/divisas", async (req, res) => {
   try {
     const query = `
-      SELECT DISTINCT codigo_moneda
+      SELECT DISTINCT codigo
       FROM divisas
       WHERE fecha >= NOW() - INTERVAL '30 days'
-      ORDER BY codigo_moneda ASC
+      ORDER BY codigo ASC
     `;
 
     const result = await pool.query(query);
-    const monedas = result.rows.map(row => row.codigo_moneda);
+    const monedas = result.rows.map((row) => row.codigo);
 
     res.json({ monedas });
-
   } catch (err) {
     console.error("Error fetching divisas from PostgreSQL:", err);
     res.status(500).json({ error: err.message });
   }
 });
-
 
 app.get("/api/tasas-cambio", async (req, res) => {
   try {
@@ -93,10 +112,10 @@ app.get("/api/tasas-cambio", async (req, res) => {
 
     const ejecutarQuery = async (dateFilter) => {
       const query = `
-        SELECT fecha, codigo_moneda, valor_media, num_apis
+        SELECT TO_CHAR(fecha, 'YYYY-MM-DD') AS fecha, codigo, valor_media, num_apis
         FROM divisas
         ${dateFilter}
-        ORDER BY fecha DESC, codigo_moneda ASC
+        ORDER BY fecha DESC, codigo ASC
       `;
 
       const result = await pool.query(query);
@@ -104,17 +123,18 @@ app.get("/api/tasas-cambio", async (req, res) => {
       const numApis = {};
       let fechaEncontrada = null;
 
-      // Agrupar por moneda y tomar el último registro
+  
       const monedas = new Map();
       for (const row of result.rows) {
-        if (!monedas.has(row.codigo_moneda)) {
-          monedas.set(row.codigo_moneda, row);
+        if (!monedas.has(row.codigo)) {
+          monedas.set(row.codigo, row);
         }
       }
 
       monedas.forEach((row) => {
-        tasas[row.codigo_moneda] = row.valor_media !== null ? Number(row.valor_media) : null;
-        numApis[row.codigo_moneda] = row.num_apis !== null ? Number(row.num_apis) : 0;
+        tasas[row.codigo] =
+          row.valor_media !== null ? Number(row.valor_media) : null;
+        numApis[row.codigo] = row.num_apis !== null ? Number(row.num_apis) : 0;
         if (!fechaEncontrada) fechaEncontrada = row.fecha;
       });
 
@@ -125,79 +145,78 @@ app.get("/api/tasas-cambio", async (req, res) => {
 
     if (fecha) {
       // Buscar para la fecha específica
-      resultado = await ejecutarQuery(
-        `WHERE DATE(fecha) = '${fecha}'`
-      );
+      resultado = await ejecutarQuery(`WHERE DATE(fecha) = '${fecha}'`);
     }
 
     // Si no hay resultados, buscar en los últimos 30 días
     if (Object.keys(resultado.tasas).length === 0) {
       resultado = await ejecutarQuery(
-        `WHERE fecha >= NOW() - INTERVAL '30 days'`
+        `WHERE fecha >= NOW() - INTERVAL '30 days'`,
       );
     }
 
     // Si aún no hay resultados, buscar en el último año
     if (Object.keys(resultado.tasas).length === 0) {
       resultado = await ejecutarQuery(
-        `WHERE fecha >= NOW() - INTERVAL '1 year'`
+        `WHERE fecha >= NOW() - INTERVAL '1 year'`,
       );
     }
 
     res.json(resultado);
-
   } catch (err) {
     console.error("Error fetching tasas de cambio from PostgreSQL:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get("/api/tasa-cambio", async (req, res) => {
-  try {
-    const { codigo } = req.query;
+// app.get("/api/tasa-cambio", async (req, res) => {
+//   try {
+//     const { codigo } = req.query;
 
-    let query = `
-      SELECT fecha, codigo_moneda, valor_media, num_apis
-      FROM divisas
-      WHERE fecha >= NOW() - INTERVAL '30 days'
-    `;
+//     let query = `
+//       SELECT fecha, codigo, valor_media, num_apis
+//       FROM divisas
+//       WHERE fecha >= NOW() - INTERVAL '30 days'
+//     `;
 
-    if (codigo) {
-      query += ` AND codigo_moneda = $1`;
-    }
+//     if (codigo) {
+//       query += ` AND codigo = $1`;
+//     }
 
-    query += ` ORDER BY fecha DESC, codigo_moneda ASC`;
+//     query += ` ORDER BY fecha DESC, codigo ASC`;
 
-    const result = codigo
-      ? await pool.query(query, [codigo.toUpperCase()])
-      : await pool.query(query);
+//     const result = codigo
+//       ? await pool.query(query, [codigo.toUpperCase()])
+//       : await pool.query(query);
 
-    const resultados = result.rows.map(row => ({
-      codigo_moneda: row.codigo_moneda,
-      valor_media: row.valor_media !== null ? Number(row.valor_media) : null,
-      num_apis: row.num_apis !== null ? Number(row.num_apis) : null,
-      fecha: row.fecha,
-    }));
+//     const resultados = result.rows.map(row => ({
+//       codigo: row.codigo,
+//       valor_media: row.valor_media !== null ? Number(row.valor_media) : null,
+//       num_apis: row.num_apis !== null ? Number(row.num_apis) : null,
+//       fecha: row.fecha,
+//     }));
 
-    if (codigo && resultados.length === 0) {
-      return res.status(404).json({ error: `Moneda '${codigo.toUpperCase()}' no encontrada` });
-    }
+//     if (codigo && resultados.length === 0) {
+//       return res.status(404).json({ error: `Moneda '${codigo.toUpperCase()}' no encontrada` });
+//     }
 
-    res.json({
-      base: "EUR",
-      total: resultados.length,
-      datos: resultados.sort((a, b) => a.codigo_moneda.localeCompare(b.codigo_moneda)),
-    });
+//     res.json({
+//       base: "EUR",
+//       total: resultados.length,
+//       datos: resultados.sort((a, b) => a.codigo.localeCompare(b.codigo)),
+//     });
 
-  } catch (err) {
-    console.error("Error fetching tasa-cambio from PostgreSQL:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
+//   } catch (err) {
+//     console.error("Error fetching tasa-cambio from PostgreSQL:", err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("API running on:");
   console.log(`  - Local:   http://localhost:${PORT}`);
   console.log(`  - Network: http://${LOCAL_IP}:${PORT}`);
-  console.log(`PostgreSQL: ${pgConfig.host}:${pgConfig.port}/${pgConfig.database}`);
+  console.log(
+    `PostgreSQL: ${pgConfig.host}:${pgConfig.port}/${pgConfig.database}`,
+  );
 });

@@ -12,7 +12,7 @@
           <div class="select-trigger" @click.stop="toggleDropdownOrigen">
             <span class="codigo-moneda">{{ monedaOrigen }}</span>
             <span class="nombre-moneda-trigger" v-if="getNombreMoneda(monedaOrigen)">({{ getNombreMoneda(monedaOrigen)
-            }})</span>
+              }})</span>
             <span class="flecha">▼</span>
           </div>
           <div v-if="dropdownAbiertoOrigen" class="select-dropdown">
@@ -22,7 +22,7 @@
               <div v-for="moneda in filtrarMonedas(busquedaOrigen)" :key="moneda" class="opcion"
                 :class="{ 'seleccionada': monedaOrigen === moneda }" @click="seleccionarMonedaOrigen(moneda)">
                 {{ moneda }} <span class="nombre-moneda" v-if="getNombreMoneda(moneda)">({{ getNombreMoneda(moneda)
-                }})</span>
+                  }})</span>
               </div>
             </div>
           </div>
@@ -47,7 +47,7 @@
           <div class="select-trigger" @click.stop="toggleDropdownDestino">
             <span class="codigo-moneda">{{ monedaDestino }}</span>
             <span class="nombre-moneda-trigger" v-if="getNombreMoneda(monedaDestino)">({{ getNombreMoneda(monedaDestino)
-            }})</span>
+              }})</span>
             <span class="flecha">▼</span>
           </div>
           <div v-if="dropdownAbiertoDestino" class="select-dropdown">
@@ -57,7 +57,7 @@
               <div v-for="moneda in filtrarMonedas(busquedaDestino)" :key="moneda" class="opcion"
                 :class="{ 'seleccionada': monedaDestino === moneda }" @click="seleccionarMonedaDestino(moneda)">
                 {{ moneda }} <span class="nombre-moneda" v-if="getNombreMoneda(moneda)">({{ getNombreMoneda(moneda)
-                }})</span>
+                  }})</span>
               </div>
             </div>
           </div>
@@ -65,29 +65,27 @@
       </div>
     </div>
 
-
     <div v-if="resultado !== null" class="info-conversion">
-      <p><b>{{ cantidad }} {{ monedaOrigen }}</b> = <b>{{ resultado.toFixed(2) }} {{ monedaDestino
-      }}</b></p>
-      <p class="tasa">Tasa de cambio: 1 {{ monedaOrigen }} = {{ tasaCambio.toFixed(10) }} {{ monedaDestino }} <span
-          v-if="fechaSeleccionada">(fecha: {{ fechaFormateada }})</span><span v-else>(últimos datos)</span></p>
+      <p><b>{{ cantidad }} {{ monedaOrigen }}</b> = <b>{{ resultado.toFixed(2) }} {{ monedaDestino }}</b></p>
+      <p class="tasa">Tasa de cambio: 1 {{ monedaOrigen }} = {{ tasaCambio.toFixed(10) }} {{ monedaDestino }}
+        <span v-if="fechaRealDatos && fechaRealDatos !== fechaSeleccionada" class="aviso-fecha">
+          (datos más recientes disponibles: {{ fechaFormateada }})
+        </span>
+        <span v-else>(fecha: {{ fechaFormateada }})</span>
+      </p>
       <div class="apis-info">
         <p>APIs consultadas: <b>{{ numApisConsultados }}</b></p>
       </div>
     </div>
 
-
     <div v-if="cargando" class="mensaje cargando">Cargando datos de monedas...</div>
     <div v-if="error" class="mensaje error">{{ error }}</div>
   </div>
-
-
 </template>
 
 <script setup>
 import { ref, onMounted, computed, onBeforeUnmount, nextTick } from 'vue'
 
-// refs
 const cantidad = ref(null)
 const monedaOrigen = ref('EUR')
 const monedaDestino = ref('USD')
@@ -98,7 +96,6 @@ const monedasDisponibles = ref([])
 const tasasConversion = ref({})
 const numApis = ref({})
 const cargando = ref(true)
-const componenteListo = ref(false)
 const error = ref('')
 const busquedaOrigen = ref('')
 const busquedaDestino = ref('')
@@ -111,16 +108,12 @@ const fechaSeleccionada = ref(hoy)
 const fechaRealDatos = ref(null)
 let debounceTimer = null
 
-// computed para mostrar fecha en formato dd-mm-yyyy
 const fechaFormateada = computed(() => {
-  // Priorizamos la fecha real de los datos devuelta por InfluxDB
-  const fechaAMostrar = fechaRealDatos.value || fechaSeleccionada.value;
-  if (!fechaAMostrar) return null;
-  const [y, m, d] = fechaAMostrar.split('-');
-  return `${d}-${m}-${y}`;
+  const fecha = fechaRealDatos.value || fechaSeleccionada.value
+  if (!fecha) return null
+  const [y, m, d] = fecha.split('-')
+  return `${d}-${m}-${y}`
 })
-
-// mapa de monedas
 const nombresMonedas = {
   'AED': 'Dirham de los Emiratos Árabes Unidos',
   'AFN': 'Afgani afgano',
@@ -469,9 +462,7 @@ const nombresMonedas = {
   'ZWD': 'Dólar zimbabuense (antiguo)',
 }
 
-const getNombreMoneda = (codigo) => {
-  return nombresMonedas[codigo] || ''
-}
+const getNombreMoneda = (codigo) => nombresMonedas[codigo] || ''
 
 const toggleDropdownOrigen = async () => {
   dropdownAbiertoOrigen.value = !dropdownAbiertoOrigen.value
@@ -515,7 +506,6 @@ const invertirDivisas = () => {
 const filtrarMonedas = (busqueda) => {
   const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
   const query = normalize(busqueda)
-
   return monedasDisponibles.value
     .filter(m => {
       const codigo = normalize(m)
@@ -523,17 +513,6 @@ const filtrarMonedas = (busqueda) => {
       return codigo.includes(query) || nombre.includes(query)
     })
     .sort((a, b) => a.localeCompare(b))
-}
-
-const formatearFechaEncontrada = (fecha) => {
-  if (!fecha) return null
-  if (typeof fecha === 'string') {
-    return fecha.split('T')[0]
-  }
-  if (fecha instanceof Date) {
-    return fecha.toISOString().split('T')[0]
-  }
-  return String(fecha).split('T')[0]
 }
 
 const cargarTasas = async () => {
@@ -550,16 +529,15 @@ const cargarTasas = async () => {
     tasasConversion.value = dataTasas.tasas
     numApis.value = dataTasas.numApis
 
-    // Guardamos la fecha real de los datos devuelta por el backend.
-    // Si no hay datos para el día solicitado, la API devuelve los últimos datos disponibles.
-    const fechaEncontradaFormateada = formatearFechaEncontrada(dataTasas.fechaEncontrada)
-    if (fechaEncontradaFormateada) {
-      fechaRealDatos.value = fechaEncontradaFormateada
-    } else {
-      fechaRealDatos.value = null
-    }
+    const fechaEncontrada = dataTasas.fechaEncontrada
+    fechaRealDatos.value = fechaEncontrada
+      ? (typeof fechaEncontrada === 'string'
+          ? fechaEncontrada.slice(0, 10)
+          : new Date(fechaEncontrada).toLocaleDateString('sv-SE'))
+      : null
+
     if (Object.keys(tasasConversion.value).length === 0) {
-      error.value = `No hay datos disponibles.`
+      error.value = 'No hay datos disponibles.'
       return
     }
 
@@ -575,39 +553,23 @@ onMounted(async () => {
     const respMonedasList = await fetch(`http://${window.location.hostname}:3000/api/divisas`)
     const dataMonedas = await respMonedasList.json()
 
-    if (dataMonedas.error) {
-      throw new Error(dataMonedas.error)
-    }
-
-    if (!Array.isArray(dataMonedas.monedas)) {
-      throw new Error('Formato de respuesta de monedas inválido')
-    }
+    if (dataMonedas.error) throw new Error(dataMonedas.error)
+    if (!Array.isArray(dataMonedas.monedas)) throw new Error('Formato de respuesta de monedas inválido')
 
     monedasDisponibles.value = dataMonedas.monedas
 
     await cargarTasas()
 
-    if (monedasDisponibles.value.includes('EUR')) {
-      monedaOrigen.value = 'EUR'
-    } else if (monedasDisponibles.value.length > 0) {
-      monedaOrigen.value = monedasDisponibles.value[0]
-    }
-
-    if (monedasDisponibles.value.includes('USD')) {
-      monedaDestino.value = 'USD'
-    } else if (monedasDisponibles.value.length > 1) {
-      monedaDestino.value = monedasDisponibles.value[1]
-    }
+    monedaOrigen.value = monedasDisponibles.value.includes('EUR') ? 'EUR' : monedasDisponibles.value[0]
+    monedaDestino.value = monedasDisponibles.value.includes('USD') ? 'USD' : monedasDisponibles.value[1]
 
     cargando.value = false
-    componenteListo.value = true
   } catch (err) {
-    console.error('Error detallado en la carga:', err);
+    console.error('Error detallado en la carga:', err)
     error.value = 'Error al cargar las monedas: ' + err.message
     cargando.value = false
   }
 })
-
 
 const convertir = () => {
   if (cantidad.value === null || cantidad.value === '') {
@@ -625,21 +587,13 @@ const convertir = () => {
     numApisConsultados.value = 0
     return
   }
+
   error.value = ''
 
-  const tasaOrigen = monedaOrigen.value === 'EUR'
-    ? 1
-    : tasasConversion.value[monedaOrigen.value]
-  const tasaDestino = monedaDestino.value === 'EUR'
-    ? 1
-    : tasasConversion.value[monedaDestino.value]
+  const tasaOrigen = monedaOrigen.value === 'EUR' ? 1 : tasasConversion.value[monedaOrigen.value]
+  const tasaDestino = monedaDestino.value === 'EUR' ? 1 : tasasConversion.value[monedaDestino.value]
 
-  if (
-    tasaOrigen == null ||
-    tasaDestino == null ||
-    isNaN(tasaOrigen) ||
-    isNaN(tasaDestino)
-  ) {
+  if (tasaOrigen == null || tasaDestino == null || isNaN(tasaOrigen) || isNaN(tasaDestino)) {
     resultado.value = null
     tasaCambio.value = 1
     numApisConsultados.value = 0
@@ -656,9 +610,7 @@ const convertir = () => {
 
 const handleInput = () => {
   clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(() => {
-    convertir()
-  }, 1000)
+  debounceTimer = setTimeout(() => convertir(), 1000)
 }
 
 onBeforeUnmount(() => {
@@ -714,9 +666,7 @@ h1 {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   width: 240px;
   min-height: 150px;
-  /* Altura fija */
   box-sizing: border-box;
-  /* Para que el padding no rompa el alto fijo */
 }
 
 .bloque-moneda label {
@@ -756,8 +706,6 @@ h1 {
   justify-content: center;
   transition: all 0.2s ease;
 }
-
-
 
 button {
   padding: 10px 30px;
@@ -911,12 +859,6 @@ button:hover:not(:disabled) {
   color: #4CAF50;
 }
 
-.separador {
-  height: 1px;
-  background: #eee;
-  margin: 5px 0;
-}
-
 button:disabled {
   background: #cccccc;
   cursor: not-allowed;
@@ -929,7 +871,6 @@ button:disabled {
   border-radius: 12px;
   margin-top: 20px;
   height: 100px;
-  /* Altura fija para que no mueva el pie de la calculadora */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -981,18 +922,6 @@ button:disabled {
 .calculadora-divisas strong {
   font-weight: 700;
 }
-
-.datepicker-inline {
-  margin-top: 8px;
-  width: 100%;
-}
-
-/* Ajuste para que el datepicker no se vea cortado si el contenedor es pequeño */
-:deep(.dp__menu) {
-  z-index: 9999;
-}
-
-
 
 @media (max-width: 600px) {
   .contenedor-principal {
