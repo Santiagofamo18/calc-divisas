@@ -37,6 +37,3 @@ npm install
 npm run dev
 ```
 5. Abre tu navegador y accede a `http://localhost:5173` para utilizar la calculadora de divisas.
-
-## Contribuciones
-No voy a aceptar contribuciones a este proyecto, ya que es un proyecto personal para practicar mis habilidades en desarrollo web.
