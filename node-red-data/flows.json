@@ -229,7 +229,7 @@
         "joiner": "\\n",
         "joinerType": "str",
         "accumulate": false,
-        "timeout": "5",
+        "timeout": "10",
         "count": "",
         "reduceRight": false,
         "reduceExp": "",
@@ -240,7 +240,7 @@
         "y": 220,
         "wires": [
             [
-                "67e829a76e76f252"
+                "c0542ecb713b7856"
             ]
         ]
     },
@@ -248,14 +248,14 @@
         "id": "c0542ecb713b7856",
         "type": "function",
         "z": "55670685a4ad1746",
-        "name": "merge y calcular",
-        "func": "const datosPrevios = {};\n\nfor (const row of msg.payload || []) {\n    const codigo = row.Codigo_moneda;\n    const field = row._field;\n    const value = row._value;\n    if (!codigo || isNaN(value)) continue;\n    if (!datosPrevios[codigo]) datosPrevios[codigo] = {};\n    datosPrevios[codigo][field] = value;\n}\n\nconst apis = flow.get(\"apiData\") || [];\nconst hoy = new Date().toISOString().split(\"T\")[0];\nconst registros = {};\n\nfor (const api of apis) {\n    const fecha = api.date || hoy;\n    if (fecha !== hoy) continue;\n    if (!registros[fecha]) registros[fecha] = {};\n    for (const [codigo, valor] of Object.entries(api.rates || {})) {\n        if (valor === null || valor === undefined || isNaN(valor)) continue;\n        if (!registros[fecha][codigo]) registros[fecha][codigo] = [];\n        registros[fecha][codigo].push(Number(valor));\n    }\n}\n\nconst points = [];\n\nfor (const [fecha, monedas] of Object.entries(registros)) {\n    for (const [codigo, valores] of Object.entries(monedas)) {\n        const sumaNueva = valores.reduce((a, v) => a + v, 0);\n        const numNuevo = valores.length;\n        const prev = datosPrevios[codigo];\n        let mediaFinal, numFinal;\n\n        if (prev?.Valor_media && prev?.Num_apis) {\n            const sumaPrev = prev.Valor_media * prev.Num_apis;\n            numFinal = prev.Num_apis + numNuevo;\n            mediaFinal = (sumaPrev + sumaNueva) / numFinal;\n        } else {\n            mediaFinal = sumaNueva / numNuevo;\n            numFinal = numNuevo;\n        }\n\n        points.push({\n            measurement: \"divisas\",\n            tags: { Codigo_moneda: codigo },\n            fields: { Valor_media: mediaFinal, Num_apis: numFinal },\n            timestamp: new Date(fecha + \"T00:00:00Z\").getTime()\n        });\n    }\n}\n\nmsg.payload = points;\nreturn msg;",
+        "name": "Calcular medias",
+        "func": "const apis = msg.payload;\nconst hoy = new Date().toISOString().split(\"T\")[0];\nconst registros = {};\n\nfor (const api of apis) {\n    const fecha = api.date || hoy;\n    if (fecha !== hoy) continue;\n    for (const [codigo, valor] of Object.entries(api.rates || {})) {\n        if (valor === null || valor === undefined || isNaN(valor)) continue;\n        if (!registros[codigo]) registros[codigo] = [];\n        registros[codigo].push(Number(valor));\n    }\n}\n\nconst points = [];\nconst timestampMs = new Date(hoy + \"T00:00:00Z\").getTime();\n\nfor (const [codigo, valores] of Object.entries(registros)) {\n    const media = valores.reduce((a, v) => a + v, 0) / valores.length;\n    points.push({\n        measurement: \"divisas\",\n        tags: { Codigo_moneda: codigo },\n        fields: { Valor_media: media, Num_apis: valores.length },\n        timestamp: timestampMs\n    });\n}\n\nmsg.payload = points;\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 960,
+        "x": 700,
         "y": 220,
         "wires": [
             [
@@ -277,63 +277,7 @@
         "targetType": "msg",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1300,
-        "y": 300,
-        "wires": []
-    },
-    {
-        "id": "7f225b34188fa73a",
-        "type": "influxdb in",
-        "z": "55670685a4ad1746",
-        "influxdb": "b1d2f3e4.5a6b7c8",
-        "name": "query",
-        "query": "",
-        "rawOutput": false,
-        "precision": "",
-        "retentionPolicy": "",
-        "org": "${INFLUXDB_ORG}",
-        "x": 750,
-        "y": 220,
-        "wires": [
-            [
-                "af04d773a4a174a0",
-                "c0542ecb713b7856"
-            ]
-        ]
-    },
-    {
-        "id": "67e829a76e76f252",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "preparar query",
-        "func": "const hoy = new Date().toISOString().split(\"T\")[0];\n\nflow.set(\"apiData\", msg.payload);\n\nmsg.query = `\nfrom(bucket: \"${env.get('INFLUXDB_BUCKET')}\")\n  |> range(start: ${hoy}T00:00:00Z, stop: ${hoy}T23:59:59Z)\n  |> filter(fn: (r) => r._measurement == \"divisas\")\n  |> filter(fn: (r) => r._field == \"Valor_media\" or r._field == \"Num_apis\")\n  |> last()\n`;\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 580,
-        "y": 220,
-        "wires": [
-            [
-                "7f225b34188fa73a"
-            ]
-        ]
-    },
-    {
-        "id": "af04d773a4a174a0",
-        "type": "debug",
-        "z": "55670685a4ad1746",
-        "name": "debug influxdb in",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 970,
+        "x": 1280,
         "y": 300,
         "wires": []
     },
@@ -367,8 +311,12 @@
         "type": "function",
         "z": "hist_tab",
         "name": "Generar lista de fechas",
-        "func": "const fechaInicio = msg.payload;\nconst hoy = new Date().toLocaleDateString('sv-SE');\nconst fechas = [];\nlet cursor = new Date(fechaInicio);\nconst fin = new Date(hoy);\nwhile (cursor <= fin) {\n    fechas.push(cursor.toLocaleDateString('sv-SE'));\n    cursor.setDate(cursor.getDate() + 1);\n}\nflow.set('fechas_pendientes', fechas);\nflow.set('fecha_idx', 0);\nflow.set('total_fechas', fechas.length);\nnode.warn('Procesando ' + fechas.length + ' días desde ' + fechaInicio + ' hasta ' + hoy);\nmsg.payload = fechas[0];\nreturn msg;",
+        "func": "const fechaInicio = msg.payload;\nconst hoy = new Date().toLocaleDateString('sv-SE');\nconst fechas = [];\nlet cursor = new Date(fechaInicio);\nconst fin = new Date(hoy);\nfin.setDate(fin.getDate() - 2);\nwhile (cursor <= fin) {\n    fechas.push(cursor.toLocaleDateString('sv-SE'));\n    cursor.setDate(cursor.getDate() + 1);\n}\nflow.set('fechas_pendientes', fechas);\nflow.set('fecha_idx', 0);\nflow.set('total_fechas', fechas.length);\nnode.warn('Procesando ' + fechas.length + ' días desde ' + fechaInicio + ' hasta ' + hoy);\nmsg.payload = fechas[0];\nreturn msg;",
         "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 360,
         "y": 200,
         "wires": [
@@ -816,7 +764,9 @@
                 "26d036b8871395db",
                 "5d318e8023f49cb3",
                 "489108f09d363b35",
-                "fcfdf6a1392be216"
+                "fcfdf6a1392be216",
+                "er_api_http",
+                "open_er_http"
             ]
         ]
     },
@@ -943,6 +893,128 @@
         "statusType": "auto",
         "x": 1180,
         "y": 380,
+        "wires": []
+    },
+    {
+        "id": "er_api_http",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "ExchangeRate API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.exchangerate-api.com/v4/latest/EUR",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 530,
+        "y": 460,
+        "wires": [
+            [
+                "er_api_norm"
+            ]
+        ]
+    },
+    {
+        "id": "er_api_norm",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"exchangerate_api\";\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 460,
+        "wires": [
+            [
+                "er_api_debug",
+                "2aaa5ab06b312a66"
+            ]
+        ]
+    },
+    {
+        "id": "er_api_debug",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug ExchangeRate API",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1070,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "open_er_http",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Open ER API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://open.er-api.com/v6/latest/EUR",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 530,
+        "y": 540,
+        "wires": [
+            [
+                "open_er_norm"
+            ]
+        ]
+    },
+    {
+        "id": "open_er_norm",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"open_er\";\n\n// Devuelve { result, time_last_update_utc, base_code, rates: {...} }\nconst dateRaw = msg.payload.time_last_update_utc || \"\";\nlet date = new Date().toISOString().split(\"T\")[0];\nif (dateRaw) {\n    date = new Date(dateRaw).toISOString().split(\"T\")[0];\n}\n\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: date\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 540,
+        "wires": [
+            [
+                "open_er_debug",
+                "2aaa5ab06b312a66"
+            ]
+        ]
+    },
+    {
+        "id": "open_er_debug",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug Open ER API",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1070,
+        "y": 540,
         "wires": []
     }
 ]

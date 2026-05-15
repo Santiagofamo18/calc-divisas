@@ -570,7 +570,6 @@ const cargarTasas = async () => {
 }
 
 onMounted(async () => {
-  document.title = "Divisas";
   window.addEventListener('click', cerrarDropdowns)
   try {
     const respMonedasList = await fetch(`http://${window.location.hostname}:3000/api/divisas`)

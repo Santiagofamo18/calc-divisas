@@ -1,38 +1,42 @@
-# calc-divisas
+# Calculadora de divisas
 
-This template should help get you started developing with Vue 3 in Vite.
+Calculadora de divisas para convertir entre diferentes monedas utilizando tasas de cambio actualizadas, los datos provienen de diferentes APIs de divisas.
 
-## Recommended IDE Setup
+## Características
+- Conversión de divisas actualizadas cada día.
+- Historial de conversiones para revisar las transacciones anteriores.
+- Interfaz de usuario sencilla e intuitiva.
+- Soporte para múltiples monedas y criptomonedas.
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## Tecnologías utilizadas
+- **Frontend**: Vue.js, HTML, CSS
+- **Backend**: Node.js, Express
+- **APIs de divisas**: 
+  - [ExchangeRate-API](https://www.exchangerate-api.com/)
+  - [Open Exchange Rates](https://openexchangerates.org/)
+  - [Frankfurter API](https://www.frankfurter.app/)
+  - [Currency API de fawazahmed](https://fawazahmed0.github.io/currency-api/)
+  - [Fxapp API](https://fxapp.net/)
+  - [AWESOME API](https://awesomeapi.com.br/api-de-moedas)
 
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
+## Instalación y uso
+1. Clona el repositorio:
+```bash
+git clone https://github.com/Santiagofamo18/calc-divisas.git
+```
+2. Navega al directorio del proyecto:
+```bash
+cd calc-divisas
+```
+3. Instala las dependencias:
+```bash
 npm install
 ```
-
-### Compile and Hot-Reload for Development
-
-```sh
+4. Inicia el servidor de desarrollo:
+```bash
 npm run dev
 ```
+5. Abre tu navegador y accede a `http://localhost:5173` para utilizar la calculadora de divisas.
 
-### Compile and Minify for Production
-
-```sh
-npm run build
-```
+## Contribuciones
+No voy a aceptar contribuciones a este proyecto, ya que es un proyecto personal para practicar mis habilidades en desarrollo web.
