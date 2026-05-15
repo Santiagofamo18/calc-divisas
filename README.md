@@ -55,31 +55,32 @@ La calculadora ira almacenando el historial de conversiones realizadas, para pod
 
 ```mermaid
 flowchart LR
-    A[⏰ Inject cada 24h] --> B[Node-RED: Tab APIs]
+    A[⏰ Inject cada 24h] --> B[Tab APIs]
 
-    B --> C1[Frankfurter API]
-    B --> C2[Fawaz Currency API]
-    B --> C3[FxApp API]
+    B --> C1[Frankfurter]
+    B --> C2[Fawaz]
+    B --> C3[FxApp]
     B --> C4[AwesomeAPI]
-    B --> C5[ExchangeRate API]
-    B --> C6[Open ER API]
+    B --> C5[ExchangeRate]
+    B --> C6[Open ER]
 
-    C1 --> D[Estandarizar\n base EUR\n fecha YYYY-MM-DD]
-    C2 --> D
-    C3 --> D
-    C4 --> D
-    C5 --> D
-    C6 --> D
+    C1 --> D1[Estandarizar]
+    C2 --> D2[Estandarizar]
+    C3 --> D3[Estandarizar]
+    C4 --> D4[Estandarizar]
+    C5 --> D5[Estandarizar]
+    C6 --> D6[Estandarizar]
 
-    D --> E[Join\n timeout 10s]
+    D1 --> E[Join\ntimeout 10s]
+    D2 --> E
+    D3 --> E
+    D4 --> E
+    D5 --> E
+    D6 --> E
 
-    E --> F[Calcular medias\n Filtrar fecha = hoy\n Media por moneda]
-
-    F --> G[PostgreSQL\n INSERT ON CONFLICT UPDATE\n tabla divisas]
-
-    G --> H[(PostgreSQL\n fecha + codigo + valor_media + num_apis)]
-
-    H --> I[Express API\n /api/tasas-cambio\n /api/divisas]
-
-    I --> J[Vue 3\n Calculadora de divisas]
+    E --> F[Calcular medias\nfiltrar fecha = hoy]
+    F --> G[postgresql\nINSERT ON CONFLICT]
+    G --> H[(PostgreSQL\ndivisas)]
+    H --> I[Express\n/api/tasas-cambio]
+    I --> J[Vue 3\nCalculadora]
 ```
