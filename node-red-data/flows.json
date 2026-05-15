@@ -18,12 +18,12 @@
         "id": "4dac3caa5dbb641f",
         "type": "postgreSQLConfig",
         "name": "",
-        "host": "postgres",
-        "hostFieldType": "str",
-        "port": "5432",
-        "portFieldType": "num",
-        "database": "postgres",
-        "databaseFieldType": "str",
+        "host": "POSTGRES_HOST",
+        "hostFieldType": "env",
+        "port": "POSTGRES_PORT",
+        "portFieldType": "env",
+        "database": "POSTGRES_DB",
+        "databaseFieldType": "env",
         "ssl": "false",
         "sslFieldType": "bool",
         "applicationName": "",
@@ -34,10 +34,10 @@
         "idleFieldType": "num",
         "connectionTimeout": "10000",
         "connectionTimeoutFieldType": "num",
-        "user": "postgres",
-        "userFieldType": "str",
-        "password": "1234",
-        "passwordFieldType": "str"
+        "user": "POSTGRES_USER",
+        "userFieldType": "env",
+        "password": "POSTGRES_PASSWORD",
+        "passwordFieldType": "env"
     },
     {
         "id": "2de14618676090fb",
@@ -140,76 +140,9 @@
         "y": 220,
         "wires": [
             [
-                "92805050e7e279a1",
                 "5c1d515836dd4e86"
             ]
         ]
-    },
-    {
-        "id": "92805050e7e279a1",
-        "type": "debug",
-        "z": "55670685a4ad1746",
-        "name": "debug Calcularmedias",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 980,
-        "y": 320,
-        "wires": []
-    },
-    {
-        "id": "fc89016220fa99c6",
-        "type": "catch",
-        "z": "55670685a4ad1746",
-        "name": "",
-        "scope": null,
-        "uncaught": false,
-        "x": 280,
-        "y": 460,
-        "wires": [
-            [
-                "24962abe4b3e4786"
-            ]
-        ]
-    },
-    {
-        "id": "24962abe4b3e4786",
-        "type": "debug",
-        "z": "55670685a4ad1746",
-        "name": "debug catch",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "true",
-        "targetType": "full",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 510,
-        "y": 460,
-        "wires": []
-    },
-    {
-        "id": "d8b8881bd85c0827",
-        "type": "debug",
-        "z": "55670685a4ad1746",
-        "name": "debug postgres",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1160,
-        "y": 220,
-        "wires": []
     },
     {
         "id": "5c1d515836dd4e86",
@@ -224,9 +157,7 @@
         "x": 950,
         "y": 220,
         "wires": [
-            [
-                "d8b8881bd85c0827"
-            ]
+            []
         ]
     },
     {
