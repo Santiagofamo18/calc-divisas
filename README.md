@@ -32,6 +32,11 @@ cd calc-divisas
 ```bash
 npm install
 ```
+4. Levantar el servidor de backend en Node-red usando Docker Compose:
+```bash
+docker-compose up -d --build
+```
+
 4. Inicia el servidor de desarrollo:
 ```bash
 npm run dev

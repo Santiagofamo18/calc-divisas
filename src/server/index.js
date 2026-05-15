@@ -3,7 +3,9 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { InfluxDB } from "@influxdata/influxdb-client";
+import pg from "pg";
+
+const { Pool } = pg;
 
 // Manual .env loader
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,14 +24,16 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-// InfluxDB configuration
-const url = process.env.INFLUXDB_URL || "http://localhost:8086";
-const token = process.env.INFLUXDB_TOKEN || "my-token";
-const org = process.env.INFLUXDB_ORG || "my-org";
-const bucket = process.env.INFLUXDB_BUCKET || "my-bucket";
+// PostgreSQL configuration
+const pgConfig = {
+  host: process.env.POSTGRES_HOST || "localhost",
+  port: process.env.POSTGRES_PORT || 5432,
+  user: process.env.POSTGRES_USER || "postgres",
+  password: process.env.POSTGRES_PASSWORD || "password",
+  database: process.env.POSTGRES_DB || "divisas_db",
+};
 
-const influxClient = new InfluxDB({ url, token });
-const queryApi = influxClient.getQueryApi(org);
+const pool = new Pool(pgConfig);
 
 // Server configuration
 const PORT = process.env.PORT || 3000;
@@ -64,32 +68,20 @@ app.get("/ping", (req, res) => {
 // GET /api/divisas — solo códigos de moneda disponibles
 app.get("/api/divisas", async (req, res) => {
   try {
-    const fluxQuery = `
-      from(bucket: "${bucket}")
-        |> range(start: -30d)
-        |> filter(fn: (r) => r._measurement == "divisas")
-        |> filter(fn: (r) => r._field == "Valor_media")
-        |> keep(columns: ["Codigo_moneda"])
-        |> distinct(column: "Codigo_moneda")
+    const query = `
+      SELECT DISTINCT codigo_moneda
+      FROM divisas
+      WHERE fecha >= NOW() - INTERVAL '30 days'
+      ORDER BY codigo_moneda ASC
     `;
 
-    const monedas = [];
+    const result = await pool.query(query);
+    const monedas = result.rows.map(row => row.codigo_moneda);
 
-    await new Promise((resolve, reject) => {
-      queryApi.queryRows(fluxQuery, {
-        next(row, tableMeta) {
-          const obj = tableMeta.toObject(row);
-          if (obj._value) monedas.push(obj._value);
-        },
-        error: reject,
-        complete: resolve,
-      });
-    });
-
-    res.json({ monedas: monedas.sort() });
+    res.json({ monedas });
 
   } catch (err) {
-    console.error("Error fetching divisas from InfluxDB:", err);
+    console.error("Error fetching divisas from PostgreSQL:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -99,54 +91,63 @@ app.get("/api/tasas-cambio", async (req, res) => {
   try {
     const { fecha } = req.query;
 
-
-    const ejecutarQuery = async (range) => {
-      const fluxQuery = `
-        from(bucket: "${bucket}")
-          |> ${range}
-          |> filter(fn: (r) => r._measurement == "divisas")
-          |> last()
-          |> pivot(rowKey: ["_time", "Codigo_moneda"], columnKey: ["_field"], valueColumn: "_value")
-          |> keep(columns: ["_time", "Codigo_moneda", "Valor_media", "Num_apis"])
+    const ejecutarQuery = async (dateFilter) => {
+      const query = `
+        SELECT fecha, codigo_moneda, valor_media, num_apis
+        FROM divisas
+        ${dateFilter}
+        ORDER BY fecha DESC, codigo_moneda ASC
       `;
 
+      const result = await pool.query(query);
       const tasas = {};
       const numApis = {};
       let fechaEncontrada = null;
 
-      await new Promise((resolve, reject) => {
-        queryApi.queryRows(fluxQuery, {
-          next(row, tableMeta) {
-            const obj = tableMeta.toObject(row);
-            if (obj.Codigo_moneda) {
-              tasas[obj.Codigo_moneda] = obj.Valor_media !== undefined ? Number(obj.Valor_media) : null;
-              numApis[obj.Codigo_moneda] = obj.Num_apis !== undefined ? Number(obj.Num_apis) : 0;
-              if (!fechaEncontrada) fechaEncontrada = obj._time;
-            }
-          },
-          error: reject,
-          complete: resolve,
-        });
+      // Agrupar por moneda y tomar el último registro
+      const monedas = new Map();
+      for (const row of result.rows) {
+        if (!monedas.has(row.codigo_moneda)) {
+          monedas.set(row.codigo_moneda, row);
+        }
+      }
+
+      monedas.forEach((row) => {
+        tasas[row.codigo_moneda] = row.valor_media !== null ? Number(row.valor_media) : null;
+        numApis[row.codigo_moneda] = row.num_apis !== null ? Number(row.num_apis) : 0;
+        if (!fechaEncontrada) fechaEncontrada = row.fecha;
       });
+
       return { tasas, numApis, fechaEncontrada };
     };
 
-    const rangeClause = fecha
-      ? `range(start: time(v: "${fecha}T00:00:00Z"), stop: time(v: "${fecha}T23:59:59Z"))`
-      : `range(start: -30d)`;
+    let resultado = { tasas: {}, numApis: {}, fechaEncontrada: null };
 
-    let resultado = await ejecutarQuery(rangeClause);
+    if (fecha) {
+      // Buscar para la fecha específica
+      resultado = await ejecutarQuery(
+        `WHERE DATE(fecha) = '${fecha}'`
+      );
+    }
 
-
+    // Si no hay resultados, buscar en los últimos 30 días
     if (Object.keys(resultado.tasas).length === 0) {
+      resultado = await ejecutarQuery(
+        `WHERE fecha >= NOW() - INTERVAL '30 days'`
+      );
+    }
 
-      resultado = await ejecutarQuery(`range(start: -1y)`);
+    // Si aún no hay resultados, buscar en el último año
+    if (Object.keys(resultado.tasas).length === 0) {
+      resultado = await ejecutarQuery(
+        `WHERE fecha >= NOW() - INTERVAL '1 year'`
+      );
     }
 
     res.json(resultado);
 
   } catch (err) {
-    console.error("Error fetching tasas de cambio from InfluxDB:", err);
+    console.error("Error fetching tasas de cambio from PostgreSQL:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -155,37 +156,28 @@ app.get("/api/tasa-cambio", async (req, res) => {
   try {
     const { codigo } = req.query;
 
-    const filtroMoneda = codigo
-      ? `|> filter(fn: (r) => r.Codigo_moneda == "${codigo.toUpperCase()}")`
-      : "";
-
-    const fluxQuery = `
-      from(bucket: "${bucket}")
-        |> range(start: -30d)
-        |> filter(fn: (r) => r._measurement == "divisas")
-        ${filtroMoneda}
-        |> last()
-        |> pivot(rowKey: ["_time", "Codigo_moneda"], columnKey: ["_field"], valueColumn: "_value")
-        |> keep(columns: ["_time", "Codigo_moneda", "Valor_media", "Num_apis"])
+    let query = `
+      SELECT fecha, codigo_moneda, valor_media, num_apis
+      FROM divisas
+      WHERE fecha >= NOW() - INTERVAL '30 days'
     `;
 
-    const resultados = [];
+    if (codigo) {
+      query += ` AND codigo_moneda = $1`;
+    }
 
-    await new Promise((resolve, reject) => {
-      queryApi.queryRows(fluxQuery, {
-        next(row, tableMeta) {
-          const obj = tableMeta.toObject(row);
-          resultados.push({
-            codigo_moneda: obj.Codigo_moneda,
-            valor_media: obj.Valor_media !== undefined ? Number(obj.Valor_media) : null,
-            num_apis: obj.Num_apis !== undefined ? Number(obj.Num_apis) : null,
-            fecha: obj._time,
-          });
-        },
-        error: reject,
-        complete: resolve,
-      });
-    });
+    query += ` ORDER BY fecha DESC, codigo_moneda ASC`;
+
+    const result = codigo
+      ? await pool.query(query, [codigo.toUpperCase()])
+      : await pool.query(query);
+
+    const resultados = result.rows.map(row => ({
+      codigo_moneda: row.codigo_moneda,
+      valor_media: row.valor_media !== null ? Number(row.valor_media) : null,
+      num_apis: row.num_apis !== null ? Number(row.num_apis) : null,
+      fecha: row.fecha,
+    }));
 
     if (codigo && resultados.length === 0) {
       return res.status(404).json({ error: `Moneda '${codigo.toUpperCase()}' no encontrada` });
@@ -198,7 +190,7 @@ app.get("/api/tasa-cambio", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error fetching tasa-cambio from InfluxDB:", err);
+    console.error("Error fetching tasa-cambio from PostgreSQL:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -207,7 +199,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("API running on:");
   console.log(`  - Local:   http://localhost:${PORT}`);
   console.log(`  - Network: http://${LOCAL_IP}:${PORT}`);
-  console.log(`InfluxDB: ${url}`);
-  console.log(`Org: ${org}`);
-  console.log(`Bucket: ${bucket}`);
+  console.log(`PostgreSQL: ${pgConfig.host}:${pgConfig.port}/${pgConfig.database}`);
 });
