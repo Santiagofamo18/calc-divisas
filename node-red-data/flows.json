@@ -14,6 +14,46 @@
         "info": ""
     },
     {
+        "id": "ddd8e7f616b2cc5d",
+        "type": "tab",
+        "label": "APIs",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "subflow_incremental",
+        "type": "subflow",
+        "name": "Incremental Upsert",
+        "info": "Recibe {code, value, source} por moneda.\nConsulta el último punto en InfluxDB,\ncalcula la media incremental y sobreescribe\nel punto del día (timestamp 00:00 UTC).",
+        "category": "divisas",
+        "in": [
+            {
+                "x": 60,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "inc_influx_in"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 700,
+                "y": 80,
+                "wires": [
+                    {
+                        "id": "inc_influx_out",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": [],
+        "meta": {}
+    },
+    {
         "id": "b1d2f3e4.5a6b7c8",
         "type": "influxdb",
         "hostname": "172.18.0.82",
@@ -27,6 +67,79 @@
         "url": "${INFLUXDB_URL}",
         "timeout": "",
         "rejectUnauthorized": false
+    },
+    {
+        "id": "inc_influx_in",
+        "type": "influxdb in",
+        "z": "subflow_incremental",
+        "influxdb": "b1d2f3e4.5a6b7c8",
+        "name": "Last value",
+        "query": "",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "org": "${INFLUXDB_ORG}",
+        "x": 200,
+        "y": 80,
+        "wires": [
+            [
+                "inc_calc"
+            ]
+        ]
+    },
+    {
+        "id": "inc_build_query",
+        "type": "function",
+        "z": "subflow_incremental",
+        "name": "Build Flux query",
+        "func": "const code = (msg.payload.code || '').toUpperCase();\nconst value = Number(msg.payload.value);\nconst source = msg.payload.source || 'unknown';\n\nif (!code || isNaN(value)) {\n    node.warn('Payload inválido: ' + JSON.stringify(msg.payload));\n    return null;\n}\n\nnode.context().set('pendingCode', code);\nnode.context().set('pendingValue', value);\nnode.context().set('pendingSource', source);\n\nconst bucket = env.get('INFLUXDB_BUCKET') || 'autis';\nconst hoy = new Date().toISOString().split('T')[0];\n\nmsg.query = `\nfrom(bucket: \"${bucket}\")\n  |> range(start: ${hoy}T00:00:00Z, stop: ${hoy}T23:59:59Z)\n  |> filter(fn: (r) => r._measurement == \"divisas\")\n  |> filter(fn: (r) => r.Codigo_moneda == \"${code}\")\n  |> last()\n`;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 200,
+        "y": 80,
+        "wires": [
+            [
+                "inc_influx_in"
+            ]
+        ]
+    },
+    {
+        "id": "inc_calc",
+        "type": "function",
+        "z": "subflow_incremental",
+        "name": "Calc incremental",
+        "func": "const code = node.context().get('pendingCode');\nconst newValue = node.context().get('pendingValue');\nconst source = node.context().get('pendingSource');\n\nlet mediaActual = 0;\nlet numApis = 0;\n\n// msg.payload viene del InfluxDB In como array de filas\nif (Array.isArray(msg.payload) && msg.payload.length > 0) {\n    const row = msg.payload[0];\n    // InfluxDB In devuelve objeto con las columnas como keys\n    mediaActual = Number(row.Valor_media ?? row._value ?? 0);\n    numApis = parseInt(row.Num_apis ?? 0, 10);\n}\n\n// Media incremental: Mn = (Mn-1 * n + v) / (n + 1)\nconst nuevaMedia = (mediaActual * numApis + newValue) / (numApis + 1);\nconst nuevoNumApis = numApis + 1;\n\nconst hoy = new Date();\nhoy.setUTCHours(0, 0, 0, 0); // Timestamp fijo 00:00 UTC para sobrescribir\n\nnode.warn(`[${source}] ${code}: media ${mediaActual.toFixed(6)} (n=${numApis}) + ${newValue} → ${nuevaMedia.toFixed(6)} (n=${nuevoNumApis})`);\n\nmsg.payload = [{\n    measurement: 'divisas',\n    tags: { Codigo_moneda: code },\n    fields: {\n        Valor_media: Number(nuevaMedia.toFixed(8)),\n        Num_apis: { value: nuevoNumApis, type: 'integer' },\n        Ultima_fuente: source\n    },\n    timestamp: hoy\n}];\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 80,
+        "wires": [
+            [
+                "inc_influx_out"
+            ]
+        ]
+    },
+    {
+        "id": "inc_influx_out",
+        "type": "influxdb batch",
+        "z": "subflow_incremental",
+        "influxdb": "b1d2f3e4.5a6b7c8",
+        "precision": "ms",
+        "retentionPolicy": "",
+        "name": "Write Influx",
+        "database": "",
+        "retentionPolicyV18Flux": "",
+        "org": "${INFLUXDB_ORG}",
+        "bucket": "${INFLUXDB_BUCKET}",
+        "x": 620,
+        "y": 80,
+        "wires": []
     },
     {
         "id": "2de14618676090fb",
@@ -49,167 +162,11 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 200,
+        "x": 100,
         "y": 220,
         "wires": [
             [
                 "341f0b40e6385a3d"
-            ]
-        ]
-    },
-    {
-        "id": "26d036b8871395db",
-        "type": "http request",
-        "z": "55670685a4ad1746",
-        "name": "Frankfurter API",
-        "method": "GET",
-        "ret": "obj",
-        "url": "https://api.frankfurter.dev/v1/latest?base=EUR",
-        "x": 680,
-        "y": 160,
-        "wires": [
-            [
-                "841ce82da8934bbc"
-            ]
-        ]
-    },
-    {
-        "id": "5d318e8023f49cb3",
-        "type": "http request",
-        "z": "55670685a4ad1746",
-        "name": "Fawaz API",
-        "method": "GET",
-        "ret": "obj",
-        "url": "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json",
-        "x": 680,
-        "y": 220,
-        "wires": [
-            [
-                "15b0ddafe241f4c1"
-            ]
-        ]
-    },
-    {
-        "id": "489108f09d363b35",
-        "type": "http request",
-        "z": "55670685a4ad1746",
-        "name": "Fxapp API",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "https://fxapi.app/api/eur.json",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": false,
-        "headers": [],
-        "x": 670,
-        "y": 280,
-        "wires": [
-            [
-                "790b9a2ebf50be31"
-            ]
-        ]
-    },
-    {
-        "id": "841ce82da8934bbc",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Estandarización",
-        "func": "msg.topic = \"frankfurter\";\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
-        "outputs": 1,
-        "x": 900,
-        "y": 160,
-        "wires": [
-            [
-                "185abda84b36cc6f"
-            ]
-        ]
-    },
-    {
-        "id": "15b0ddafe241f4c1",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Estandarización",
-        "func": "msg.topic = \"fawaz\";\nconst rawRates = msg.payload.eur || {};\nconst ratesUpper = {};\n\n// Convertimos todas las claves (usd, gbp...) a MAYÚSCULAS (USD, GBP...)\nfor (const [key, value] of Object.entries(rawRates)) {\n    ratesUpper[key.toUpperCase()] = value;\n}\n\nmsg.payload = {\n    rates: ratesUpper,\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 900,
-        "y": 220,
-        "wires": [
-            [
-                "185abda84b36cc6f"
-            ]
-        ]
-    },
-    {
-        "id": "790b9a2ebf50be31",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Estandarización",
-        "func": "msg.topic = \"fxapp\";\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 900,
-        "y": 280,
-        "wires": [
-            [
-                "185abda84b36cc6f"
-            ]
-        ]
-    },
-    {
-        "id": "185abda84b36cc6f",
-        "type": "join",
-        "z": "55670685a4ad1746",
-        "name": "",
-        "mode": "custom",
-        "build": "object",
-        "property": "payload",
-        "propertyType": "msg",
-        "key": "topic",
-        "joiner": "\\n",
-        "joinerType": "str",
-        "accumulate": false,
-        "timeout": "5",
-        "count": "4",
-        "reduceRight": false,
-        "reduceExp": "",
-        "reduceInit": "",
-        "reduceInitType": "",
-        "reduceFixup": "",
-        "x": 1100,
-        "y": 220,
-        "wires": [
-            [
-                "bed198732c260698"
-            ]
-        ]
-    },
-    {
-        "id": "bed198732c260698",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Calc",
-        "func": "const apis = msg.payload;\nconst mapaDivisas = {};\nconst fechas = [];\n\nfor (const apiTag in apis) {\n    const apiData = apis[apiTag];\n    if (!apiData || typeof apiData !== 'object') continue;\n    if (apiData.date) fechas.push(apiData.date);\n\n    const tasas = apiData.rates || apiData;\n    for (const [codigo, valor] of Object.entries(tasas)) {\n        const codigoNorm = codigo.toUpperCase();\n        if (!mapaDivisas[codigoNorm]) {\n            mapaDivisas[codigoNorm] = { suma: 0, conteo: 0 };\n        }\n        mapaDivisas[codigoNorm].suma += valor;\n        mapaDivisas[codigoNorm].conteo += 1;\n    }\n}\n\nconst todasIguales = fechas.length === 4 && fechas.every(f => f === fechas[0]);\n\nif (!todasIguales) {\n    node.warn(`⏳ APIs en fechas distintas: ${fechas.join(', ')} — bloqueando`);\n    return null;\n}\n\nconst fecha = fechas[0];\nconst resultados = Object.keys(mapaDivisas).map(codigo => ({\n    codigo,\n    media: mapaDivisas[codigo].suma / mapaDivisas[codigo].conteo,\n    fuentes: mapaDivisas[codigo].conteo,\n    fecha\n}));\n\nmsg.payload = resultados;\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1270,
-        "y": 220,
-        "wires": [
-            [
-                "43bf0f093b23f31d"
             ]
         ]
     },
@@ -220,80 +177,15 @@
         "influxdb": "b1d2f3e4.5a6b7c8",
         "precision": "",
         "retentionPolicy": "",
-        "name": "Write to Influx",
+        "name": "InfluxDB Batch",
         "database": "",
+        "precisionV18FluxV20": "ms",
         "retentionPolicyV18Flux": "",
         "org": "${INFLUXDB_ORG}",
         "bucket": "${INFLUXDB_BUCKET}",
-        "x": 2000,
+        "x": 1260,
         "y": 220,
         "wires": []
-    },
-    {
-        "id": "c3e89cc82270a290",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "Build Influx points",
-        "func": "const records = msg.payload || [];\n\nmsg.payload = records.map(item => {\n    const numApis = Math.round(Number(item.fuentes ?? item.num_apis ?? 0));\n    return {\n        measurement: \"divisas\",\n        tags: { Codigo_moneda: (item.codigo || item.Codigo_moneda || \"\").toUpperCase() },\n        fields: {\n            Valor_media: Number(item.media ?? item.valor_media ?? 0),\n            Num_apis: { value: numApis, type: \"integer\" }\n        },\n        timestamp: new Date()\n    };\n});\n\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1750,
-        "y": 220,
-        "wires": [
-            [
-                "9c7d0f6a8b5c3d21"
-            ]
-        ]
-    },
-    {
-        "id": "43bf0f093b23f31d",
-        "type": "function",
-        "z": "55670685a4ad1746",
-        "name": "date_today",
-        "func": "const hoy = new Date().toLocaleDateString('sv-SE');\nconst fechaApi = msg.payload[0]?.fecha;\n\nif (fechaApi === hoy) {\n    node.warn(`APIs actualizadas al ${hoy} — subiendo datos`);\n    return [msg, null]; \n} else {\n    node.warn(`APIs aún en ${fechaApi}, reintentando en 30 min...`);\n    return [null, msg]; \n}",
-        "outputs": 2,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1430,
-        "y": 220,
-        "wires": [
-            [
-                "c3e89cc82270a290"
-            ],
-            [
-                "333704b1f93d137f"
-            ]
-        ]
-    },
-    {
-        "id": "333704b1f93d137f",
-        "type": "delay",
-        "z": "55670685a4ad1746",
-        "name": "",
-        "pauseType": "delay",
-        "timeout": "30",
-        "timeoutUnits": "minutes",
-        "rate": "1",
-        "nbRateUnits": "1",
-        "rateUnits": "second",
-        "randomFirst": "1",
-        "randomLast": "5",
-        "randomUnits": "seconds",
-        "drop": false,
-        "allowrate": false,
-        "outputs": 1,
-        "x": 1610,
-        "y": 320,
-        "wires": [
-            [
-                "19277f4ea4e8b145"
-            ]
-        ]
     },
     {
         "id": "341f0b40e6385a3d",
@@ -304,85 +196,146 @@
         "links": [
             "50ac77c4cd57f7f9"
         ],
-        "x": 335,
+        "x": 235,
         "y": 220,
         "wires": []
     },
     {
-        "id": "50ac77c4cd57f7f9",
+        "id": "680f0a98ddd68cba",
         "type": "link in",
         "z": "55670685a4ad1746",
-        "name": "link to apis",
+        "name": "link in influx",
         "links": [
-            "341f0b40e6385a3d",
-            "19277f4ea4e8b145"
+            "2aaa5ab06b312a66"
         ],
-        "x": 505,
+        "x": 305,
         "y": 220,
         "wires": [
             [
-                "26d036b8871395db",
-                "5d318e8023f49cb3",
-                "489108f09d363b35",
-                "fcfdf6a1392be216"
+                "9142fc6473d6778f"
             ]
         ]
     },
     {
-        "id": "19277f4ea4e8b145",
-        "type": "link out",
+        "id": "9142fc6473d6778f",
+        "type": "join",
         "z": "55670685a4ad1746",
-        "name": "link out delay",
-        "mode": "link",
-        "links": [
-            "50ac77c4cd57f7f9"
-        ],
-        "x": 1795,
-        "y": 320,
-        "wires": []
-    },
-    {
-        "id": "fcfdf6a1392be216",
-        "type": "http request",
-        "z": "55670685a4ad1746",
-        "name": "AWESOME API",
-        "method": "GET",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "https://economia.awesomeapi.com.br/json/last/EUR-USD,EUR-GBP,EUR-JPY,EUR-CHF,EUR-BRL,EUR-CAD",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": false,
-        "headers": [],
-        "x": 680,
-        "y": 360,
+        "name": "",
+        "mode": "custom",
+        "build": "array",
+        "property": "payload",
+        "propertyType": "msg",
+        "key": "topic",
+        "joiner": "\\n",
+        "joinerType": "str",
+        "accumulate": false,
+        "timeout": "5",
+        "count": "",
+        "reduceRight": false,
+        "reduceExp": "",
+        "reduceInit": "",
+        "reduceInitType": "",
+        "reduceFixup": "",
+        "x": 410,
+        "y": 220,
         "wires": [
             [
-                "fcd635b7bc8b6c78"
+                "67e829a76e76f252"
             ]
         ]
     },
     {
-        "id": "fcd635b7bc8b6c78",
+        "id": "c0542ecb713b7856",
         "type": "function",
         "z": "55670685a4ad1746",
-        "name": "Estandarización",
-        "func": "msg.topic = \"awesome\";\nconst rates = {};\n\nfor (const pair in msg.payload) {\n    const code = pair.substring(3); \n    rates[code] = parseFloat(msg.payload[pair].bid);\n}\n\nmsg.payload = {\n    rates: rates,\n    date: new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "name": "merge y calcular",
+        "func": "const datosPrevios = {};\n\nfor (const row of msg.payload || []) {\n    const codigo = row.Codigo_moneda;\n    const field = row._field;\n    const value = row._value;\n    if (!codigo || isNaN(value)) continue;\n    if (!datosPrevios[codigo]) datosPrevios[codigo] = {};\n    datosPrevios[codigo][field] = value;\n}\n\nconst apis = flow.get(\"apiData\") || [];\nconst hoy = new Date().toISOString().split(\"T\")[0];\nconst registros = {};\n\nfor (const api of apis) {\n    const fecha = api.date || hoy;\n    if (fecha !== hoy) continue;\n    if (!registros[fecha]) registros[fecha] = {};\n    for (const [codigo, valor] of Object.entries(api.rates || {})) {\n        if (valor === null || valor === undefined || isNaN(valor)) continue;\n        if (!registros[fecha][codigo]) registros[fecha][codigo] = [];\n        registros[fecha][codigo].push(Number(valor));\n    }\n}\n\nconst points = [];\n\nfor (const [fecha, monedas] of Object.entries(registros)) {\n    for (const [codigo, valores] of Object.entries(monedas)) {\n        const sumaNueva = valores.reduce((a, v) => a + v, 0);\n        const numNuevo = valores.length;\n        const prev = datosPrevios[codigo];\n        let mediaFinal, numFinal;\n\n        if (prev?.Valor_media && prev?.Num_apis) {\n            const sumaPrev = prev.Valor_media * prev.Num_apis;\n            numFinal = prev.Num_apis + numNuevo;\n            mediaFinal = (sumaPrev + sumaNueva) / numFinal;\n        } else {\n            mediaFinal = sumaNueva / numNuevo;\n            numFinal = numNuevo;\n        }\n\n        points.push({\n            measurement: \"divisas\",\n            tags: { Codigo_moneda: codigo },\n            fields: { Valor_media: mediaFinal, Num_apis: numFinal },\n            timestamp: new Date(fecha + \"T00:00:00Z\").getTime()\n        });\n    }\n}\n\nmsg.payload = points;\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 900,
-        "y": 360,
+        "x": 960,
+        "y": 220,
         "wires": [
             [
-                "185abda84b36cc6f"
+                "9c7d0f6a8b5c3d21",
+                "92805050e7e279a1"
             ]
         ]
+    },
+    {
+        "id": "92805050e7e279a1",
+        "type": "debug",
+        "z": "55670685a4ad1746",
+        "name": "debug Calcularmedias",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1300,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "7f225b34188fa73a",
+        "type": "influxdb in",
+        "z": "55670685a4ad1746",
+        "influxdb": "b1d2f3e4.5a6b7c8",
+        "name": "query",
+        "query": "",
+        "rawOutput": false,
+        "precision": "",
+        "retentionPolicy": "",
+        "org": "${INFLUXDB_ORG}",
+        "x": 750,
+        "y": 220,
+        "wires": [
+            [
+                "af04d773a4a174a0",
+                "c0542ecb713b7856"
+            ]
+        ]
+    },
+    {
+        "id": "67e829a76e76f252",
+        "type": "function",
+        "z": "55670685a4ad1746",
+        "name": "preparar query",
+        "func": "const hoy = new Date().toISOString().split(\"T\")[0];\n\nflow.set(\"apiData\", msg.payload);\n\nmsg.query = `\nfrom(bucket: \"${env.get('INFLUXDB_BUCKET')}\")\n  |> range(start: ${hoy}T00:00:00Z, stop: ${hoy}T23:59:59Z)\n  |> filter(fn: (r) => r._measurement == \"divisas\")\n  |> filter(fn: (r) => r._field == \"Valor_media\" or r._field == \"Num_apis\")\n  |> last()\n`;\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 220,
+        "wires": [
+            [
+                "7f225b34188fa73a"
+            ]
+        ]
+    },
+    {
+        "id": "af04d773a4a174a0",
+        "type": "debug",
+        "z": "55670685a4ad1746",
+        "name": "debug influxdb in",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 970,
+        "y": 300,
+        "wires": []
     },
     {
         "id": "hist_inject",
@@ -718,5 +671,278 @@
                 "ea5a5d2f5f4d91f6"
             ]
         ]
+    },
+    {
+        "id": "26d036b8871395db",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Frankfurter API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.frankfurter.dev/v1/latest?base=EUR",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 540,
+        "y": 180,
+        "wires": [
+            [
+                "841ce82da8934bbc"
+            ]
+        ]
+    },
+    {
+        "id": "5d318e8023f49cb3",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Currency API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/eur.json",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 530,
+        "y": 240,
+        "wires": [
+            [
+                "15b0ddafe241f4c1"
+            ]
+        ]
+    },
+    {
+        "id": "489108f09d363b35",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Fxapp API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://fxapi.app/api/eur.json",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 530,
+        "y": 300,
+        "wires": [
+            [
+                "790b9a2ebf50be31"
+            ]
+        ]
+    },
+    {
+        "id": "841ce82da8934bbc",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"frankfurter\";\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "outputs": 1,
+        "x": 760,
+        "y": 180,
+        "wires": [
+            [
+                "2aaa5ab06b312a66",
+                "73f5789c94cc31fe"
+            ]
+        ]
+    },
+    {
+        "id": "15b0ddafe241f4c1",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"currency\";\nconst data = msg.payload.eur;\nconst normalizedRates = {};\n\nfor (const [key, value] of Object.entries(data)) {\n\n    normalizedRates[key.toUpperCase()] = value;\n}\n\nmsg.payload = {\n    rates: normalizedRates,\n    date: msg.payload.date\n};\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 240,
+        "wires": [
+            [
+                "2aaa5ab06b312a66",
+                "7988b5fb53116ab6"
+            ]
+        ]
+    },
+    {
+        "id": "790b9a2ebf50be31",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"fxapp\";\nmsg.payload = {\n    rates: msg.payload.rates || {},\n    date: msg.payload.date || new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 300,
+        "wires": [
+            [
+                "2aaa5ab06b312a66",
+                "7eb3f082ae1139af"
+            ]
+        ]
+    },
+    {
+        "id": "50ac77c4cd57f7f9",
+        "type": "link in",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "link to apis",
+        "links": [
+            "341f0b40e6385a3d",
+            "19277f4ea4e8b145"
+        ],
+        "x": 365,
+        "y": 240,
+        "wires": [
+            [
+                "26d036b8871395db",
+                "5d318e8023f49cb3",
+                "489108f09d363b35",
+                "fcfdf6a1392be216"
+            ]
+        ]
+    },
+    {
+        "id": "fcfdf6a1392be216",
+        "type": "http request",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "AWESOME API",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://economia.awesomeapi.com.br/json/last/EUR-USD,EUR-GBP,EUR-JPY,EUR-CHF,EUR-BRL,EUR-CAD",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 540,
+        "y": 380,
+        "wires": [
+            [
+                "fcd635b7bc8b6c78"
+            ]
+        ]
+    },
+    {
+        "id": "fcd635b7bc8b6c78",
+        "type": "function",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "Estandarización",
+        "func": "msg.topic = \"awesome\";\nconst rates = {};\n\nfor (const pair in msg.payload) {\n    const code = pair.substring(3); \n    rates[code] = parseFloat(msg.payload[pair].bid);\n}\n\nmsg.payload = {\n    rates: rates,\n    date: new Date().toISOString().split(\"T\")[0]\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 380,
+        "wires": [
+            [
+                "2aaa5ab06b312a66",
+                "dc958f8ed671cf32"
+            ]
+        ]
+    },
+    {
+        "id": "2aaa5ab06b312a66",
+        "type": "link out",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "link out apis",
+        "mode": "link",
+        "links": [
+            "680f0a98ddd68cba"
+        ],
+        "x": 1025,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "73f5789c94cc31fe",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug FrankFurter",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1070,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "7988b5fb53116ab6",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug CurrencyAPI",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1210,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "7eb3f082ae1139af",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug FxApp API",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1190,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "dc958f8ed671cf32",
+        "type": "debug",
+        "z": "ddd8e7f616b2cc5d",
+        "name": "debug ASESOMEAPI",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1180,
+        "y": 380,
+        "wires": []
     }
 ]
